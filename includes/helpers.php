@@ -11,13 +11,31 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the plugin's configured DateTimeZone object.
+ * Returns the timezone used for all slot wall-clock times.
+ *
+ * Order of preference:
+ *   1. The DCS_TIMEZONE constant, when defined and valid.
+ *   2. The site's own timezone (Settings → General), via wp_timezone().
+ *   3. UTC, as a last resort.
  */
 function dcs_tz(): DateTimeZone {
     static $tz = null;
-    if ( ! $tz ) {
-        $tz = new DateTimeZone( DCS_TIMEZONE );
+    if ( $tz instanceof DateTimeZone ) {
+        return $tz;
     }
+
+    if ( defined( 'DCS_TIMEZONE' ) && DCS_TIMEZONE ) {
+        try {
+            $tz = new DateTimeZone( DCS_TIMEZONE );
+            return $tz;
+        } catch ( Exception $ex ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[DCS] Invalid DCS_TIMEZONE "' . DCS_TIMEZONE . '": ' . $ex->getMessage() );
+            }
+        }
+    }
+
+    $tz = function_exists( 'wp_timezone' ) ? wp_timezone() : new DateTimeZone( 'UTC' );
     return $tz;
 }
 

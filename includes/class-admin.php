@@ -587,6 +587,7 @@ class DCS_Admin {
 
         // Reopen
         if ( ! empty( $_POST['dcs_reopen_poll'] ) && $_POST['dcs_reopen_poll'] == '1' ) {
+            if ( ! isset( $_POST['dcs_close_poll_nonce'] ) || ! wp_verify_nonce( $_POST['dcs_close_poll_nonce'], 'dcs_close_poll_action' ) ) return;
             update_post_meta( $post_id, '_poll_status', 'open' );
             delete_post_meta( $post_id, '_poll_selected_slot_id' );
             delete_post_meta( $post_id, '_poll_selected_slot_snapshot' );
