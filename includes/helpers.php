@@ -1,0 +1,320 @@
+<?php
+/**
+ * DCS Helpers
+ * Pure utility functions with no side effects or WP hook registrations.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+// ---------------------------------------------------------------------------
+// Timezone
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the plugin's configured DateTimeZone object.
+ */
+function dcs_tz(): DateTimeZone {
+    static $tz = null;
+    if ( ! $tz ) {
+        $tz = new DateTimeZone( DCS_TIMEZONE );
+    }
+    return $tz;
+}
+
+// ---------------------------------------------------------------------------
+// Slot data helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a human-readable label for a slot, preferring stored label,
+ * then computed from start/end timestamps, then a fallback.
+ */
+function dcs_slot_label( array $slot ): string {
+    if ( ! empty( $slot['label'] ) ) {
+        return $slot['label'];
+    }
+    $start = isset( $slot['start'] ) ? intval( $slot['start'] ) : 0;
+    $end   = isset( $slot['end'] )   ? intval( $slot['end'] )   : 0;
+    if ( $start ) {
+        $fmt = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+        $s = date_i18n( $fmt, $start );
+        if ( $end && $end > $start ) {
+            return $s . ' - ' . date_i18n( get_option( 'time_format' ), $end );
+        }
+        return $s;
+    }
+    return isset( $slot['id'] ) ? 'Slot #' . $slot['id'] : 'Slot';
+}
+
+/**
+ * Formats a timestamp range in the plugin timezone.
+ * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm ET"
+ */
+function dcs_format_range( int $start, int $end = 0 ): string {
+    if ( $start <= 0 ) return '—';
+    try {
+        $s_dt = ( new DateTimeImmutable( '@' . $start ) )->setTimezone( dcs_tz() );
+        $label = $s_dt->format( 'M j, Y · g:ia' );
+        if ( $end > 0 ) {
+            $e_dt = ( new DateTimeImmutable( '@' . $end ) )->setTimezone( dcs_tz() );
+            $label .= ' – ' . $e_dt->format( 'g:ia' );
+        }
+        $abbr = ( new DateTime( 'now', dcs_tz() ) )->format( 'T' ); // EDT or EST
+        return $label . ' ' . $abbr;
+    } catch ( Throwable $ex ) {
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( '[DCS] dcs_format_range error: ' . $ex->getMessage() );
+        }
+        return gmdate( 'M j, Y · g:ia', $start ) . ' UTC';
+    }
+}
+
+/**
+ * Formats the range derived from a slot array.
+ */
+function dcs_slot_range( array $slot ): string {
+    $start = isset( $slot['start'] ) ? intval( $slot['start'] ) : 0;
+    $end   = isset( $slot['end'] )   ? intval( $slot['end'] )   : 0;
+    if ( $end <= 0 && ! empty( $slot['duration_minutes'] ) && $start > 0 ) {
+        $end = $start + intval( $slot['duration_minutes'] ) * 60;
+    }
+    return dcs_format_range( $start, $end );
+}
+
+/**
+ * Converts a date string + time string (as entered in the admin UI) to a UTC epoch.
+ * The strings are interpreted as local wall-clock time in DCS_TIMEZONE.
+ */
+function dcs_epoch_from_local( string $date, string $time ): int {
+    $date = trim( $date );
+    $time = trim( $time );
+    if ( $date === '' || $time === '' ) return 0;
+    try {
+        $dt = new DateTimeImmutable( $date . ' ' . $time, dcs_tz() );
+        return $dt->getTimestamp();
+    } catch ( Exception $ex ) {
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( '[DCS] dcs_epoch_from_local failed for "' . $date . ' ' . $time . '": ' . $ex->getMessage() );
+        }
+        return 0;
+    }
+}
+
+/**
+ * Returns a human-readable duration string from a minutes integer.
+ * e.g. 90 → "1h 30m", 60 → "1h", 45 → "45m"
+ */
+function dcs_format_duration( int $minutes ): string {
+    if ( $minutes <= 0 ) return '';
+    $h  = intdiv( $minutes, 60 );
+    $m  = $minutes % 60;
+    if ( $h > 0 && $m > 0 ) return $h . 'h ' . $m . 'm';
+    if ( $h > 0 )            return $h . 'h';
+    return $m . 'm';
+}
+
+/**
+ * Normalises an email address. Returns '' if not a valid email.
+ */
+function dcs_normalize_email( string $email ): string {
+    $email = strtolower( trim( $email ) );
+    if ( ! is_email( $email ) ) return '';
+    // Strip Gmail subaddressing and dots for deduplication
+    if ( str_ends_with( $email, '@gmail.com' ) || str_ends_with( $email, '@googlemail.com' ) ) {
+        [ $local, $domain ] = explode( '@', $email );
+        $local = str_replace( '.', '', preg_replace( '/\+.*/', '', $local ) );
+        return $local . '@' . $domain;
+    }
+    return $email;
+}
+
+/**
+ * Gathers every unique voter email from all slots of a meeting event.
+ * Returns an array of normalised email strings.
+ */
+function dcs_collect_voter_emails( int $post_id ): array {
+    $slots = get_post_meta( $post_id, '_meeting_slots', true );
+    if ( ! is_array( $slots ) ) return [];
+    $map = [];
+    foreach ( $slots as $slot ) {
+        $candidates = [];
+        if ( ! empty( $slot['attendees'] ) && is_array( $slot['attendees'] ) ) {
+            $candidates = array_merge( $candidates, $slot['attendees'] );
+        }
+        foreach ( $candidates as $c ) {
+            $raw = '';
+            if ( is_string( $c ) )                        $raw = $c;
+            elseif ( is_array( $c ) && isset( $c['email'] ) ) $raw = $c['email'];
+            $norm = dcs_normalize_email( $raw );
+            if ( $norm ) $map[ $norm ] = true;
+        }
+    }
+    return array_keys( $map );
+}
+
+/**
+ * Ensures a slot array has consistent start, end, and duration_minutes.
+ * Never forces a default duration — only derives what it can from existing data.
+ */
+function dcs_normalize_slot_timestamps( array $slot ): array {
+    $s = isset( $slot['start'] ) ? intval( $slot['start'] ) : 0;
+    $e = isset( $slot['end'] )   ? intval( $slot['end'] )   : 0;
+    $d = isset( $slot['duration_minutes'] ) ? intval( $slot['duration_minutes'] ) : 0;
+
+    // Derive start from date/time labels if missing
+    if ( ! $s && ! empty( $slot['date'] ) && ! empty( $slot['time'] ) ) {
+        $s = dcs_epoch_from_local( $slot['date'], $slot['time'] );
+        if ( $s ) $slot['start'] = $s;
+    }
+
+    // Derive end from start + duration
+    if ( $s > 0 && $d > 0 && $e <= 0 ) {
+        $e = $s + $d * 60;
+        $slot['end'] = $e;
+    }
+
+    // Derive duration from start + end
+    if ( $s > 0 && $e > $s && $d <= 0 ) {
+        $d = intdiv( $e - $s, 60 );
+        $slot['duration_minutes'] = $d;
+    }
+
+    // Ensure end matches start + duration when both are present (duration is authoritative)
+    if ( $s > 0 && $d > 0 ) {
+        $slot['end'] = $s + $d * 60;
+    }
+
+    return $slot;
+}
+
+// ---------------------------------------------------------------------------
+// ICS generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates an ICS file attachment for a confirmed meeting slot.
+ * Returns the path to a temp file, or '' on failure.
+ */
+function dcs_build_ics( WP_Post $post, int $start_ts, int $end_ts ): string {
+    $uid      = $post->ID . '@' . parse_url( home_url(), PHP_URL_HOST );
+    $now      = ( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) )->format( 'Ymd\THis\Z' );
+    $dtstart  = ( new DateTimeImmutable( '@' . $start_ts ) )->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
+    $dtend    = ( new DateTimeImmutable( '@' . max( $end_ts, $start_ts ) ) )->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
+    $summary  = addcslashes( html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ), ',;' );
+    $desc     = addcslashes( get_permalink( $post ), ',;' );
+    $host     = parse_url( home_url(), PHP_URL_HOST );
+
+    $ics = implode( "\r\n", [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//' . $host . '//DCS//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        'UID:'      . $uid,
+        'DTSTAMP:'  . $now,
+        'DTSTART:'  . $dtstart,
+        'DTEND:'    . $dtend,
+        'SUMMARY:'  . $summary,
+        'DESCRIPTION:' . $desc,
+        'END:VEVENT',
+        'END:VCALENDAR',
+        '',
+    ] );
+
+    $tmp = wp_tempnam( 'dcs-' . $post->ID . '.ics' );
+    if ( $tmp && file_put_contents( $tmp, $ics ) !== false ) {
+        return $tmp;
+    }
+    return '';
+}
+
+/**
+ * Builds a Google Calendar add-event URL for a meeting.
+ */
+function dcs_google_calendar_url( WP_Post $post, int $start_ts, int $end_ts ): string {
+    $title   = rawurlencode( html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+    $details = rawurlencode( get_permalink( $post ) );
+    $s       = ( new DateTimeImmutable( '@' . $start_ts ) )->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
+    $e       = ( new DateTimeImmutable( '@' . $end_ts ) )  ->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' . $title . '&dates=' . $s . '/' . $e . '&details=' . $details;
+}
+
+// ---------------------------------------------------------------------------
+// Magic edit-link tokens (HMAC, no DB required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the secret key used to sign edit-link tokens.
+ * Uses WordPress's AUTH_SALT as a strong per-site secret.
+ */
+function dcs_token_secret(): string {
+    if ( defined( 'AUTH_SALT' ) && AUTH_SALT ) return AUTH_SALT;
+    if ( defined( 'NONCE_SALT' ) && NONCE_SALT ) return NONCE_SALT;
+    return 'dcs_fallback_secret'; // Should never be reached on a real WP install
+}
+
+/**
+ * Creates a signed, time-limited token encoding the event ID and voter email.
+ * Format: base64url(json_payload).hmac_sha256
+ */
+function dcs_make_edit_token( int $event_id, string $email, int $ttl = 2592000 ): string {
+    $payload = wp_json_encode( [
+        'event_id' => $event_id,
+        'email'    => strtolower( trim( $email ) ),
+        'exp'      => time() + max( 300, $ttl ),
+    ] );
+    $b64 = rtrim( base64_encode( $payload ), '=' );
+    $sig = hash_hmac( 'sha256', $b64, dcs_token_secret() );
+    return $b64 . '.' . $sig;
+}
+
+/**
+ * Validates and decodes an edit token.
+ * Returns the payload array on success, or false if the token is missing,
+ * malformed, tampered with, or expired.
+ *
+ * Use dcs_decode_edit_token() when you need to distinguish expired from invalid.
+ */
+function dcs_parse_edit_token( string $token ): array|false {
+    $result = dcs_decode_edit_token( $token );
+    if ( $result['state'] !== 'valid' ) return false;
+    return $result['data'];
+}
+
+/**
+ * Decodes an edit token and returns a state descriptor so callers can
+ * distinguish between the three possible outcomes:
+ *
+ *   [ 'state' => 'valid',   'data' => [...payload...] ]
+ *   [ 'state' => 'expired', 'data' => [...payload...] ]  — signature OK, TTL elapsed
+ *   [ 'state' => 'invalid', 'data' => null ]             — missing, malformed, or tampered
+ *
+ * This is the preferred function when you need to show the user a specific
+ * message for an expired link rather than a generic failure.
+ */
+function dcs_decode_edit_token( string $token ): array {
+    $invalid = [ 'state' => 'invalid', 'data' => null ];
+
+    if ( ! $token || strpos( $token, '.' ) === false ) return $invalid;
+
+    [ $b64, $sig ] = explode( '.', $token, 2 );
+
+    // Verify signature first — never decode an untrusted payload
+    $expected = hash_hmac( 'sha256', $b64, dcs_token_secret() );
+    if ( ! hash_equals( $expected, $sig ) ) return $invalid;
+
+    $data = json_decode( base64_decode( $b64 ), true );
+    if ( ! is_array( $data ) || empty( $data['event_id'] ) || empty( $data['email'] ) || empty( $data['exp'] ) ) {
+        return $invalid;
+    }
+
+    $data['email']    = strtolower( trim( $data['email'] ) );
+    $data['event_id'] = intval( $data['event_id'] );
+
+    if ( time() > intval( $data['exp'] ) ) {
+        return [ 'state' => 'expired', 'data' => $data ];
+    }
+
+    return [ 'state' => 'valid', 'data' => $data ];
+}
