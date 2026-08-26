@@ -88,11 +88,11 @@ class DCS_Mailer {
 
         wp_mail( $email, $subject, $body, self::plain_headers() );
 
-        // Record the exact time this token was issued so the admin voter roster
-        // can show a trustworthy "expires in N days" figure based on the real
-        // send time rather than an approximation.
-        $meta_key = '_dcs_voter_token_sent_at_' . md5( strtolower( trim( $email ) ) );
-        update_post_meta( $event_id, $meta_key, time() );
+        // Note: the "token issued at" timestamp that drives the admin voter
+        // roster's expiry column is written by DCS_Ajax::handle_poll_vote()
+        // under the _dcs_token_issued_<md5(normalised email)> key. It is
+        // recorded there because that path always runs, even when this mail
+        // is skipped by the rate limiter.
     }
 
     /**

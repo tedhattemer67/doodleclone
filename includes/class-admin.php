@@ -186,7 +186,7 @@ class DCS_Admin {
         foreach ( $slots as $idx => $slot ) {
             $attendees = is_array( $slot['attendees'] ?? null ) ? $slot['attendees'] : [];
             $names     = array_map(
-                fn( $a ) => esc_html( $a['name'] ?: $a['email'] ?: '—' ),
+                fn( $a ) => esc_html( ( $a['name'] ?? '' ) ?: ( $a['email'] ?? '' ) ?: '—' ),
                 $attendees
             );
             $row_class = ( $idx === $selected_idx ) ? ' class="dcs-winner"' : '';
@@ -397,7 +397,7 @@ class DCS_Admin {
             $dur_mins = intval( $sl['duration_minutes'] ?? 0 ) ?: ( $s && $e > $s ? intdiv( $e - $s, 60 ) : 0 );
             $votes    = count( $sl['attendees'] ?? [] );
             $names    = implode( ', ', array_map(
-                fn( $a ) => esc_html( $a['name'] ?: $a['email'] ?: '—' ),
+                fn( $a ) => esc_html( ( $a['name'] ?? '' ) ?: ( $a['email'] ?? '' ) ?: '—' ),
                 $sl['attendees'] ?? []
             ) );
 
@@ -492,6 +492,10 @@ class DCS_Admin {
         if ( ! self::should_save( $post_id ) ) return;
         if ( empty( $_POST['slots'] ) || ! is_array( $_POST['slots'] ) ) return;
 
+        // WordPress adds slashes to every superglobal; strip them before
+        // sanitizing so values like "O'Brien" are not stored as "O\'Brien".
+        $posted_slots = wp_unslash( $_POST['slots'] );
+
         $existing_slots = get_post_meta( $post_id, '_meeting_slots', true );
         $existing_by_id = [];
         if ( is_array( $existing_slots ) ) {
@@ -501,7 +505,7 @@ class DCS_Admin {
         }
 
         $clean = [];
-        foreach ( $_POST['slots'] as $s ) {
+        foreach ( $posted_slots as $s ) {
             if ( empty( $s['date'] ) || empty( $s['time'] ) ) continue;
 
             $start_ts = dcs_epoch_from_local( sanitize_text_field( $s['date'] ), sanitize_text_field( $s['time'] ) );

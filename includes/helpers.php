@@ -257,6 +257,9 @@ function dcs_token_secret(): string {
 /**
  * Creates a signed, time-limited token encoding the event ID and voter email.
  * Format: base64url(json_payload).hmac_sha256
+ *
+ * The payload is URL-safe base64 (no +, /, or = characters) so the token
+ * survives every URL-encoding round trip without corruption.
  */
 function dcs_make_edit_token( int $event_id, string $email, int $ttl = 2592000 ): string {
     $payload = wp_json_encode( [
@@ -264,7 +267,7 @@ function dcs_make_edit_token( int $event_id, string $email, int $ttl = 2592000 )
         'email'    => strtolower( trim( $email ) ),
         'exp'      => time() + max( 300, $ttl ),
     ] );
-    $b64 = rtrim( base64_encode( $payload ), '=' );
+    $b64 = rtrim( strtr( base64_encode( $payload ), '+/', '-_' ), '=' );
     $sig = hash_hmac( 'sha256', $b64, dcs_token_secret() );
     return $b64 . '.' . $sig;
 }
@@ -304,7 +307,9 @@ function dcs_decode_edit_token( string $token ): array {
     $expected = hash_hmac( 'sha256', $b64, dcs_token_secret() );
     if ( ! hash_equals( $expected, $sig ) ) return $invalid;
 
-    $data = json_decode( base64_decode( $b64 ), true );
+    // Accept both URL-safe (current) and standard (legacy) base64 payloads so
+    // edit links emailed before this change keep working for their full TTL.
+    $data = json_decode( base64_decode( strtr( $b64, '-_', '+/' ) ), true );
     if ( ! is_array( $data ) || empty( $data['event_id'] ) || empty( $data['email'] ) || empty( $data['exp'] ) ) {
         return $invalid;
     }

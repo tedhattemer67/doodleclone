@@ -24,8 +24,8 @@ class DCS_Ajax {
         }
 
         $event_id = intval( $_POST['event_id'] ?? 0 );
-        $name     = sanitize_text_field( $_POST['name'] ?? '' );
-        $email    = sanitize_email( $_POST['email'] ?? '' );
+        $name     = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+        $email    = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
 
         if ( ! $event_id || ! $name || ! is_email( $email ) ) {
             wp_send_json_error( __( 'Please fill in all required fields.', 'doodle-clone-scheduler' ) );
@@ -60,7 +60,7 @@ class DCS_Ajax {
     // -------------------------------------------------------------------------
 
     private static function handle_poll_vote( int $event_id, array $slots, string $name, string $email ): void {
-        $selected_labels = array_map( 'sanitize_text_field', (array) ( $_POST['slot_ids'] ?? [] ) );
+        $selected_labels = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['slot_ids'] ?? [] ) ) );
 
         if ( empty( $selected_labels ) ) {
             wp_send_json_error( __( 'Please select at least one time slot.', 'doodle-clone-scheduler' ) );
@@ -103,8 +103,10 @@ class DCS_Ajax {
         update_post_meta( $event_id, '_meeting_slots', $slots );
 
         // Record when this voter's token was issued so the admin roster can
-        // show accurate expiry status without a database table.
-        $issued_key = '_dcs_token_issued_' . md5( strtolower( $email ) );
+        // show accurate expiry status without a database table. The key must be
+        // hashed from the *normalised* email so it matches the roster's lookup
+        // (dcs_normalize_email strips Gmail dots/subaddressing).
+        $issued_key = '_dcs_token_issued_' . md5( dcs_normalize_email( $email ) );
         update_post_meta( $event_id, $issued_key, time() );
 
         // Send confirmation — bypass rate-limit on edits so they always get a fresh link
@@ -127,7 +129,7 @@ class DCS_Ajax {
     // -------------------------------------------------------------------------
 
     private static function handle_single_booking( int $event_id, array $slots, string $name, string $email ): void {
-        $slot_label = sanitize_text_field( $_POST['slot_id'] ?? '' );
+        $slot_label = sanitize_text_field( wp_unslash( $_POST['slot_id'] ?? '' ) );
 
         foreach ( $slots as &$slot ) {
             if ( dcs_slot_label( $slot ) !== $slot_label ) continue;

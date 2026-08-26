@@ -260,8 +260,8 @@ class DCS_Frontend {
 
     private static function render_success_notice( array $slots ): string {
         if ( empty( $_GET['booking_success'] ) || empty( $_GET['name'] ) ) return '';
-        $slot_label = sanitize_text_field( $_GET['booking_success'] );
-        $user       = sanitize_text_field( $_GET['name'] );
+        $slot_label = sanitize_text_field( wp_unslash( $_GET['booking_success'] ) );
+        $user       = sanitize_text_field( wp_unslash( $_GET['name'] ) );
         foreach ( $slots as $slot ) {
             if ( dcs_slot_label( $slot ) !== $slot_label ) continue;
             $range = dcs_slot_range( $slot );
@@ -409,6 +409,9 @@ class DCS_Frontend {
         $events = get_posts( [ 'post_type' => 'meeting_event', 'numberposts' => -1 ] );
         if ( ! $events ) return '<p>' . esc_html__( 'No meeting events found.', 'doodle-clone-scheduler' ) . '</p>';
 
+        // Only privileged users see who booked; everyone else sees Booked/Available.
+        $show_names = current_user_can( 'edit_posts' );
+
         $output = '<div class="dcs-schedule-overview">';
         foreach ( $events as $event ) {
             $slots = get_post_meta( $event->ID, '_meeting_slots', true );
@@ -419,7 +422,22 @@ class DCS_Frontend {
             $output .= '<table border="1" cellpadding="6" cellspacing="0" style="margin-bottom:20px;">';
             $output .= '<thead><tr><th>' . esc_html__( 'Time', 'doodle-clone-scheduler' ) . '</th><th>' . esc_html__( 'Status', 'doodle-clone-scheduler' ) . '</th></tr></thead><tbody>';
             foreach ( $slots as $slot ) {
-                $att    = ! empty( $slot['attendees'] ) ? esc_html( $slot['attendees'][0]['name'] ) : '<em>' . esc_html__( 'Available', 'doodle-clone-scheduler' ) . '</em>';
+                $attendees = ( ! empty( $slot['attendees'] ) && is_array( $slot['attendees'] ) ) ? $slot['attendees'] : [];
+
+                if ( empty( $attendees ) ) {
+                    $att = '<em>' . esc_html__( 'Available', 'doodle-clone-scheduler' ) . '</em>';
+                } elseif ( $show_names ) {
+                    $names = array_filter( array_map(
+                        fn( $a ) => trim( (string) ( $a['name'] ?? '' ) ) ?: (string) ( $a['email'] ?? '' ),
+                        $attendees
+                    ) );
+                    $att = $names
+                        ? esc_html( implode( ', ', $names ) )
+                        : esc_html__( 'Booked', 'doodle-clone-scheduler' );
+                } else {
+                    $att = esc_html__( 'Booked', 'doodle-clone-scheduler' );
+                }
+
                 $output .= '<tr><td>' . esc_html( dcs_slot_range( $slot ) ) . '</td><td>' . $att . '</td></tr>';
             }
             $output .= '</tbody></table>';
