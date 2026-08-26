@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.0.3
+Stable tag: 2.0.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -45,10 +45,17 @@ wp-config.php to pin one, or leave it unset to use the site's own timezone.
 
 == Uninstall ==
 
-Deleting the plugin (not just deactivating) removes every Meeting Event post and
-all of its slot, vote and booking data. Export anything you need first.
+Deleting the plugin leaves all Meeting Event posts and their data untouched. If
+you want that content gone, delete the Meeting Events yourself before or after
+removing the plugin.
 
 == Changelog ==
+
+= 2.0.4 =
+* Removed uninstall.php entirely. In 2.0.2/2.0.3 it deleted every Meeting Event
+  and all plugin data whenever the plugin was deleted — including during a
+  delete-then-reinstall upgrade. It should never have removed content. Plugin
+  data now always survives deletion.
 
 = 2.0.3 =
 * Fixed: the admin Voter Roster showed slot times in the WordPress site
@@ -84,6 +91,10 @@ all of its slot, vote and booking data. Export anything you need first.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.0.4 =
+IMPORTANT: fixes a data-loss bug in 2.0.2/2.0.3 where deleting the plugin wiped
+all Meeting Events. Upgrade before any further delete/reinstall.
 
 = 2.0.3 =
 Fixes the Voter Roster showing slot times in the wrong timezone. Display only.
