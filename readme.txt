@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.0.2
+Stable tag: 2.0.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,6 +50,14 @@ all of its slot, vote and booking data. Export anything you need first.
 
 == Changelog ==
 
+= 2.0.3 =
+* Fixed: the admin Voter Roster showed slot times in the WordPress site
+  timezone while every other view (Poll Results, Close Group Poll, public page)
+  used the plugin timezone, so the two disagreed by the UTC offset. The roster
+  now uses the same formatter as Poll Results.
+* The announcement panel's "Last sent" timestamp now shows in the plugin
+  timezone too.
+
 = 2.0.2 =
 * Security: verify the close-poll nonce on the "Reopen Poll" action too.
 * Added uninstall.php — removes all Meeting Event posts, plugin post meta, and
@@ -76,6 +84,9 @@ all of its slot, vote and booking data. Export anything you need first.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.0.3 =
+Fixes the Voter Roster showing slot times in the wrong timezone. Display only.
 
 = 2.0.2 =
 Adds proper uninstall cleanup and a site-timezone fallback. No data migration.

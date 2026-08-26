@@ -228,24 +228,33 @@ class DCS_Admin {
      * For each unique voter: name, email, slot selections, and edit-link status.
      */
     private static function render_voter_roster( int $post_id, array $slots ): void {
-        // Build a map: normalised email → [ name, slot_labels[], raw_email ]
+        // Per-slot display label + start timestamp. Use the SAME formatter as the
+        // Poll Results table (dcs_slot_range → dcs_tz) so the two sections always
+        // agree; dcs_slot_label() renders in the site timezone and is wrong here.
+        $slot_display = [];
+        $slot_start   = [];
+        foreach ( $slots as $idx => $slot ) {
+            $slot_display[ $idx ] = dcs_slot_range( $slot );
+            $slot_start[ $idx ]   = intval( $slot['start'] ?? 0 );
+        }
+
+        // Build a map: normalised email → [ name, raw email, selected slot indexes ]
         $voters = [];
-        foreach ( $slots as $slot ) {
+        foreach ( $slots as $idx => $slot ) {
             if ( empty( $slot['attendees'] ) || ! is_array( $slot['attendees'] ) ) continue;
-            $label = dcs_slot_label( $slot );
             foreach ( $slot['attendees'] as $a ) {
                 $raw  = $a['email'] ?? '';
                 $norm = dcs_normalize_email( $raw );
                 if ( ! $norm ) continue;
                 if ( ! isset( $voters[ $norm ] ) ) {
                     $voters[ $norm ] = [
-                        'name'        => $a['name'] ?? '',
-                        'email'       => $raw,
-                        'slot_labels' => [],
+                        'name'     => $a['name'] ?? '',
+                        'email'    => $raw,
+                        'slot_idx' => [],
                     ];
                 }
-                $voters[ $norm ]['slot_labels'][] = $label;
-                // Keep the most recent non-empty name
+                $voters[ $norm ]['slot_idx'][] = $idx;
+                // Keep the first non-empty name we see for this voter
                 if ( empty( $voters[ $norm ]['name'] ) && ! empty( $a['name'] ) ) {
                     $voters[ $norm ]['name'] = $a['name'];
                 }
@@ -262,12 +271,6 @@ class DCS_Admin {
         // Determine the winning slot's start timestamp for highlighting
         $snap          = get_post_meta( $post_id, '_poll_selected_slot_snapshot', true );
         $winning_start = ( is_array( $snap ) && ! empty( $snap['start'] ) ) ? intval( $snap['start'] ) : 0;
-
-        // Build slot label → start map for winner highlighting
-        $label_to_start = [];
-        foreach ( $slots as $slot ) {
-            $label_to_start[ dcs_slot_label( $slot ) ] = intval( $slot['start'] ?? 0 );
-        }
 
         echo '<h4 style="margin:20px 0 6px;">' . esc_html__( 'Voter Roster', 'doodle-clone-scheduler' ) . '</h4>';
 
@@ -298,10 +301,11 @@ class DCS_Admin {
 
             // Build slot pills
             $pills = '';
-            foreach ( $voter['slot_labels'] as $lbl ) {
-                $s           = $label_to_start[ $lbl ] ?? 0;
+            foreach ( $voter['slot_idx'] as $idx ) {
+                $s           = $slot_start[ $idx ] ?? 0;
                 $is_winner   = $winning_start && $s === $winning_start;
                 $pill_class  = $is_winner ? 'dcs-slot-pill winner' : 'dcs-slot-pill';
+                $lbl         = $slot_display[ $idx ] ?? ( 'Slot #' . ( (int) $idx + 1 ) );
                 $pills      .= '<span class="' . $pill_class . '">' . esc_html( $lbl ) . '</span>';
             }
 
@@ -459,7 +463,7 @@ class DCS_Admin {
 
         if ( $sent_at ) {
             echo '<p style="margin:8px 0;color:#646970;">'
-                . sprintf( esc_html__( 'Last sent: %s', 'doodle-clone-scheduler' ), esc_html( date_i18n( 'M j, Y · g:ia', intval( $sent_at ) ) ) )
+                . sprintf( esc_html__( 'Last sent: %s', 'doodle-clone-scheduler' ), esc_html( wp_date( 'M j, Y · g:ia T', intval( $sent_at ), dcs_tz() ) ) )
                 . '</p>';
         }
 
