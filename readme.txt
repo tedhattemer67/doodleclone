@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.0.4
+Stable tag: 2.0.7
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -51,6 +51,48 @@ removing the plugin.
 
 == Changelog ==
 
+= 2.0.7 =
+* Fixed: two people booking the last spot in a capped slot at nearly the same
+  moment could both get confirmed, overbooking it. Booking a slot now holds a
+  brief per-slot lock across the capacity check and the write.
+* Fixed: two people submitting a group poll response at nearly the same
+  moment could silently clobber each other's selections (whichever write
+  landed second won). Poll submissions now hold a brief per-event lock across
+  the read-modify-write, and re-read the latest data before applying changes.
+* Security: the booking/poll AJAX endpoint now requires the event to actually
+  be published — a draft, scheduled, or trashed event could previously still
+  be booked or voted on by guessing its ID directly.
+* Security: the magic edit-link signing key no longer falls back to a fixed
+  string hardcoded in the plugin source if a site is somehow missing its
+  normal WordPress salts. It now falls back to a random, site-specific secret
+  generated once and stored in the database.
+
+= 2.0.6 =
+* Fixed: slot selection (booking, poll voting, prefill, and the closed-poll
+  voter summary) now identifies a slot by its own stable ID instead of its
+  rendered date/time label. Previously, two slots that happened to render an
+  identical label (e.g. an accidentally duplicated slot) would be silently
+  confused with each other — a booking or vote could land on the wrong slot.
+  This also removes a timezone inconsistency: the old label was formatted in
+  the site's timezone while everything else in the plugin uses the configured
+  plugin timezone.
+* Note for existing sites: if a visitor already has the booking/poll form open
+  in a browser tab from before this update, ask them to refresh before
+  submitting.
+
+= 2.0.5 =
+* Security: a group poll vote can no longer be overwritten by submitting
+  someone else's email address. Editing an existing response now requires the
+  edit-link token that was emailed to that voter; first-time submissions, and
+  voters an admin entered manually in the Slots box (never issued a token),
+  are unaffected.
+* Security: added rate limiting to the public booking/poll AJAX endpoint (per
+  IP, and per event+email) so it can't be scripted to flood slot capacity or
+  send bulk confirmation emails.
+* The frontend script now keeps the edit token in the live form (not just the
+  URL) after a poll submission, so resubmitting without a page reload still
+  works under the new authorization check.
+
 = 2.0.4 =
 * Removed uninstall.php entirely. In 2.0.2/2.0.3 it deleted every Meeting Event
   and all plugin data whenever the plugin was deleted — including during a
@@ -91,6 +133,11 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.0.5 =
+Security fixes: closes a vote/booking-hijack hole (anyone could overwrite
+another voter's poll response by reusing their email) and adds rate limiting
+to the public AJAX endpoint. Recommended before wider public use.
 
 = 2.0.4 =
 IMPORTANT: fixes a data-loss bug in 2.0.2/2.0.3 where deleting the plugin wiped

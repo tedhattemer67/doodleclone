@@ -65,6 +65,29 @@ function dcs_slot_label( array $slot ): string {
 }
 
 /**
+ * Returns the stable identifier used to refer to a slot in form submissions,
+ * AJAX requests, and prefill/matching logic.
+ *
+ * Prefers the slot's own persistent 'id' (assigned once by
+ * DCS_Admin::save_slots() and preserved across edits) over dcs_slot_label().
+ * The label is a rendered date/time string in the *site* timezone — two
+ * distinct slots can render identically (e.g. an accidental duplicate), and
+ * even a single slot's label can shift if the site timezone or date/time
+ * format settings change. Using it as an identity key meant a collision
+ * silently mismatched a vote/booking to the wrong slot. 'id' has neither
+ * problem, so every real identity check should go through this function
+ * rather than calling dcs_slot_label() directly.
+ */
+function dcs_slot_key( array $slot ): string {
+    if ( ! empty( $slot['id'] ) ) {
+        return (string) $slot['id'];
+    }
+    // Malformed/legacy data with no id — fall back to the old behaviour
+    // rather than failing to identify the slot at all.
+    return dcs_slot_label( $slot );
+}
+
+/**
  * Formats a timestamp range in the plugin timezone.
  * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm ET"
  */
@@ -259,6 +282,87 @@ function dcs_google_calendar_url( WP_Post $post, int $start_ts, int $end_ts ): s
 }
 
 // ---------------------------------------------------------------------------
+// Rate limiting (transient-based, no DB table required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the requesting client's IP address.
+ *
+ * Deliberately reads only REMOTE_ADDR, never X-Forwarded-For or similar
+ * client-supplied headers — those are trivially spoofable and would let an
+ * attacker pick their own rate-limit bucket. Sites behind a proxy that need
+ * the real client IP should resolve it via their proxy config, not here.
+ */
+function dcs_client_ip(): string {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    return is_string( $ip ) ? $ip : '';
+}
+
+/**
+ * Best-effort request throttle. Returns true if $bucket has already hit
+ * $max_attempts within the last $window_seconds (i.e. the caller should be
+ * blocked), false otherwise — and counts the current attempt either way.
+ *
+ * Backed by a transient counter rather than a lock, so a burst of near-
+ * simultaneous requests can race past the limit by a request or two. That's
+ * an acceptable tradeoff here: this exists to stop scripted abuse of the
+ * public booking/poll endpoint (slot flooding, email spam), not to provide
+ * hard guarantees.
+ */
+function dcs_rate_limited( string $bucket, int $max_attempts, int $window_seconds ): bool {
+    $key   = 'dcs_rl_' . md5( $bucket );
+    $count = (int) get_transient( $key );
+
+    if ( $count >= $max_attempts ) {
+        return true;
+    }
+
+    set_transient( $key, $count + 1, $window_seconds );
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Advisory locking (for short read-modify-write critical sections)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attempts to acquire a short-lived advisory lock for $key. Returns true if
+ * acquired, false if someone else currently holds it.
+ *
+ * A transient-based "check then set" can't guarantee exclusivity — two
+ * requests can both see the key absent and both proceed. This instead relies
+ * on add_option(), which fails if the option row already exists (a unique
+ * key constraint at the DB level), giving a real mutual-exclusion guarantee
+ * without a custom table.
+ *
+ * The lock has no explicit release-on-crash mechanism (there's no "unlock on
+ * disconnect" for options), so it stores its acquisition time and is treated
+ * as free once older than $ttl_seconds — a request that dies mid-critical-
+ * section can't wedge the lock shut forever. Callers should still call
+ * dcs_release_lock() as soon as the critical section ends.
+ */
+function dcs_acquire_lock( string $key, int $ttl_seconds = 10 ): bool {
+    $option = 'dcs_lock_' . md5( $key );
+
+    if ( add_option( $option, time(), '', 'no' ) ) {
+        return true;
+    }
+
+    $held_since = (int) get_option( $option );
+    if ( $held_since && ( time() - $held_since ) > $ttl_seconds ) {
+        update_option( $option, time(), false );
+        return true;
+    }
+
+    return false;
+}
+
+/** Releases a lock acquired via dcs_acquire_lock(). */
+function dcs_release_lock( string $key ): void {
+    delete_option( 'dcs_lock_' . md5( $key ) );
+}
+
+// ---------------------------------------------------------------------------
 // Magic edit-link tokens (HMAC, no DB required)
 // ---------------------------------------------------------------------------
 
@@ -269,7 +373,17 @@ function dcs_google_calendar_url( WP_Post $post, int $start_ts, int $end_ts ): s
 function dcs_token_secret(): string {
     if ( defined( 'AUTH_SALT' ) && AUTH_SALT ) return AUTH_SALT;
     if ( defined( 'NONCE_SALT' ) && NONCE_SALT ) return NONCE_SALT;
-    return 'dcs_fallback_secret'; // Should never be reached on a real WP install
+
+    // Last resort for a broken install missing its normal WP salts. Never use
+    // a fixed literal here — this plugin's source is readable by anyone, so a
+    // hardcoded secret would make every edit-link token forgeable by anyone.
+    // Generate a random, site-specific secret once and persist it instead.
+    $secret = get_option( 'dcs_fallback_secret' );
+    if ( ! is_string( $secret ) || $secret === '' ) {
+        $secret = wp_generate_password( 64, true, true );
+        update_option( 'dcs_fallback_secret', $secret, false );
+    }
+    return $secret;
 }
 
 /**

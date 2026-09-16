@@ -30,12 +30,25 @@ jQuery( document ).ready( function ( $ ) {
                             : 'Thanks! Your availability has been recorded. Check your email for a link to edit your response.';
                         $message.text( msg );
 
-                        // Update the page URL to carry the fresh token so that if the
-                        // voter bookmarks or refreshes, the form still pre-populates.
-                        if ( d.token && window.history && window.history.replaceState ) {
-                            var url = new URL( window.location.href );
-                            url.searchParams.set( 'dcs_token', d.token );
-                            window.history.replaceState( {}, '', url.toString() );
+                        // Carry the fresh token forward in the live form too, not just the
+                        // URL — the server now requires a valid token to authorize any
+                        // resubmission against an email that already has selections on
+                        // file, so without this a same-page resubmit (no reload) would be
+                        // wrongly rejected as unauthorized.
+                        if ( d.token ) {
+                            var $tokenInput = $form.find( 'input[name="dcs_edit_token"]' );
+                            if ( ! $tokenInput.length ) {
+                                $tokenInput = $( '<input>', { type: 'hidden', name: 'dcs_edit_token' } ).appendTo( $form );
+                            }
+                            $tokenInput.val( d.token );
+
+                            // Update the page URL to carry the fresh token so that if the
+                            // voter bookmarks or refreshes, the form still pre-populates.
+                            if ( window.history && window.history.replaceState ) {
+                                var url = new URL( window.location.href );
+                                url.searchParams.set( 'dcs_token', d.token );
+                                window.history.replaceState( {}, '', url.toString() );
+                            }
                         }
 
                         $btn.prop( 'disabled', false );

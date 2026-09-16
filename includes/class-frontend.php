@@ -148,9 +148,9 @@ class DCS_Frontend {
                 echo '<p style="margin:0 0 8px;"><strong>' . esc_html__( 'Your selections:', 'doodle-clone-scheduler' ) . '</strong></p>';
             }
 
-            if ( ! empty( $voter['slot_labels'] ) ) {
-                // Resolve full slot data for each label the voter selected
-                $selected_slots = self::slots_for_labels( $slots, $voter['slot_labels'] );
+            if ( ! empty( $voter['slot_keys'] ) ) {
+                // Resolve full slot data for each slot the voter selected
+                $selected_slots = self::slots_for_keys( $slots, $voter['slot_keys'] );
                 usort( $selected_slots, fn( $a, $b ) => ( $a['start'] ?? 0 ) - ( $b['start'] ?? 0 ) );
 
                 // Find the winning slot so we can highlight it
@@ -186,7 +186,7 @@ class DCS_Frontend {
      * Returns one of:
      *   null                          — no token in URL, or token is for a different event
      *   [ 'expired' => true, ... ]    — signature valid but TTL elapsed
-     *   [ 'expired' => false, ... ]   — valid token with email, name, slot_labels
+     *   [ 'expired' => false, ... ]   — valid token with email, name, slot_keys
      */
     private static function resolve_voter_from_token( int $post_id, array $slots ): ?array {
         if ( empty( $_GET['dcs_token'] ) ) return null;
@@ -204,13 +204,13 @@ class DCS_Frontend {
 
         // Token is expired but was legitimately issued for this event
         if ( $result['state'] === 'expired' ) {
-            return [ 'expired' => true, 'email' => $data['email'], 'name' => '', 'slot_labels' => [] ];
+            return [ 'expired' => true, 'email' => $data['email'], 'name' => '', 'slot_keys' => [] ];
         }
 
         // Valid token — look up the voter's selections
-        $email  = $data['email'];
-        $name   = '';
-        $labels = [];
+        $email = $data['email'];
+        $name  = '';
+        $keys  = [];
 
         foreach ( $slots as $slot ) {
             if ( empty( $slot['attendees'] ) ) continue;
@@ -219,20 +219,20 @@ class DCS_Frontend {
                 if ( ! empty( $a['name'] ) && $name === '' ) {
                     $name = $a['name'];
                 }
-                $labels[] = dcs_slot_label( $slot );
+                $keys[] = dcs_slot_key( $slot );
             }
         }
 
-        return [ 'expired' => false, 'email' => $email, 'name' => $name, 'slot_labels' => $labels ];
+        return [ 'expired' => false, 'email' => $email, 'name' => $name, 'slot_keys' => $keys ];
     }
 
     /**
-     * Returns the subset of $slots whose label matches any entry in $labels.
+     * Returns the subset of $slots whose identity key matches any entry in $keys.
      */
-    private static function slots_for_labels( array $slots, array $labels ): array {
+    private static function slots_for_keys( array $slots, array $keys ): array {
         return array_values( array_filter(
             $slots,
-            fn( $slot ) => in_array( dcs_slot_label( $slot ), $labels, true )
+            fn( $slot ) => in_array( dcs_slot_key( $slot ), $keys, true )
         ) );
     }
 
@@ -260,10 +260,10 @@ class DCS_Frontend {
 
     private static function render_success_notice( array $slots ): string {
         if ( empty( $_GET['booking_success'] ) || empty( $_GET['name'] ) ) return '';
-        $slot_label = sanitize_text_field( wp_unslash( $_GET['booking_success'] ) );
-        $user       = sanitize_text_field( wp_unslash( $_GET['name'] ) );
+        $slot_key = sanitize_text_field( wp_unslash( $_GET['booking_success'] ) );
+        $user     = sanitize_text_field( wp_unslash( $_GET['name'] ) );
         foreach ( $slots as $slot ) {
-            if ( dcs_slot_label( $slot ) !== $slot_label ) continue;
+            if ( dcs_slot_key( $slot ) !== $slot_key ) continue;
             $range = dcs_slot_range( $slot );
             return '<div class="notice notice-success" style="padding:10px;margin-bottom:1em;">'
                 . sprintf(
@@ -282,10 +282,10 @@ class DCS_Frontend {
 
     /**
      * If a valid dcs_token is in the query string, return prefill data
-     * (email, name, and array of previously selected slot labels).
+     * (email, name, and array of previously selected slot keys).
      */
     private static function resolve_prefill( int $post_id, array $slots ): array {
-        $prefill = [ 'email' => '', 'name' => '', 'slot_labels' => [] ];
+        $prefill = [ 'email' => '', 'name' => '', 'slot_keys' => [] ];
         if ( empty( $_GET['dcs_token'] ) ) return $prefill;
 
         $token_data = dcs_parse_edit_token( sanitize_text_field( $_GET['dcs_token'] ) );
@@ -300,7 +300,7 @@ class DCS_Frontend {
                 if ( ! empty( $a['name'] ) && $prefill['name'] === '' ) {
                     $prefill['name'] = $a['name'];
                 }
-                $prefill['slot_labels'][] = dcs_slot_label( $slot );
+                $prefill['slot_keys'][] = dcs_slot_key( $slot );
             }
         }
 
@@ -375,7 +375,7 @@ class DCS_Frontend {
 
     private static function render_slot_item( array $slot, bool $is_poll, array $prefill ): void {
         $label     = esc_html( dcs_slot_range( $slot ) );
-        $value     = esc_attr( dcs_slot_label( $slot ) );
+        $value     = esc_attr( dcs_slot_key( $slot ) );
         $attendees = $slot['attendees'] ?? [];
         $max       = intval( $slot['max'] ?? 1 );
         $full      = ! $is_poll && count( $attendees ) >= $max;
@@ -384,7 +384,7 @@ class DCS_Frontend {
         if ( $full ) {
             echo '<span class="dcs-slot-full">' . $label . ' — ' . esc_html__( 'Full', 'doodle-clone-scheduler' ) . '</span>';
         } elseif ( $is_poll ) {
-            $checked = in_array( dcs_slot_label( $slot ), $prefill['slot_labels'], true ) ? ' checked' : '';
+            $checked = in_array( dcs_slot_key( $slot ), $prefill['slot_keys'], true ) ? ' checked' : '';
             printf(
                 '<label><input type="checkbox" name="slot_ids[]" value="%s"%s> %s</label>',
                 $value,
