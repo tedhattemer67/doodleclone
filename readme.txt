@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.0.8
+Stable tag: 2.1.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,6 +50,22 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.1.0 =
+* Reconciled with the earlier, never-merged `harden-1on1-booking` branch:
+  * 1-on-1 booking: one booking per email address per event, matched on the
+    normalised address (Gmail dot/+tag variants included).
+  * 1-on-1 booking: a slot more than 15 minutes past its start time can no
+    longer be booked. Adjustable via the `dcs_booking_past_grace` filter
+    (seconds).
+  * Client IP detection (used by rate limiting) is now filterable via
+    `dcs_client_ip`, for sites that need to read a trusted proxy/CDN header
+    instead of the default `REMOTE_ADDR`.
+* The booking/poll locking added in 2.0.7 now uses a real MySQL session
+  advisory lock (`GET_LOCK`/`RELEASE_LOCK`) instead of an options-table-based
+  lock. Functionally equivalent, but it can't be left stale by a crashed
+  request — the lock releases automatically when its DB connection closes,
+  so there's no TTL/staleness bookkeeping to get wrong.
 
 = 2.0.8 =
 * Added lightweight, dependency-free bot mitigation to the public booking/poll

@@ -288,14 +288,17 @@ function dcs_google_calendar_url( WP_Post $post, int $start_ts, int $end_ts ): s
 /**
  * Returns the requesting client's IP address.
  *
- * Deliberately reads only REMOTE_ADDR, never X-Forwarded-For or similar
- * client-supplied headers — those are trivially spoofable and would let an
- * attacker pick their own rate-limit bucket. Sites behind a proxy that need
- * the real client IP should resolve it via their proxy config, not here.
+ * Deliberately reads only REMOTE_ADDR by default, never X-Forwarded-For or
+ * similar client-supplied headers — those are trivially spoofable and would
+ * let an attacker pick their own rate-limit bucket. A site actually running
+ * behind a known proxy/CDN can override this via the 'dcs_client_ip' filter
+ * (e.g. to read a trusted CF-Connecting-IP header) rather than us guessing
+ * at a default that would reopen the spoofing problem for everyone else.
  */
 function dcs_client_ip(): string {
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-    return is_string( $ip ) ? $ip : '';
+    $ip = is_string( $ip ) ? $ip : '';
+    return (string) apply_filters( 'dcs_client_ip', $ip );
 }
 
 /**
@@ -326,40 +329,46 @@ function dcs_rate_limited( string $bucket, int $max_attempts, int $window_second
 // ---------------------------------------------------------------------------
 
 /**
- * Attempts to acquire a short-lived advisory lock for $key. Returns true if
- * acquired, false if someone else currently holds it.
+ * Runs $fn() while holding a MySQL session advisory lock for $key, and
+ * returns whatever $fn() returns — or a WP_Error if the lock couldn't be
+ * acquired within $timeout_seconds.
  *
- * A transient-based "check then set" can't guarantee exclusivity — two
- * requests can both see the key absent and both proceed. This instead relies
- * on add_option(), which fails if the option row already exists (a unique
- * key constraint at the DB level), giving a real mutual-exclusion guarantee
- * without a custom table.
+ * GET_LOCK()/RELEASE_LOCK() give a real mutual-exclusion guarantee (unlike
+ * dcs_rate_limited()'s transient counter, which can't). They're also
+ * self-cleaning in a way an options-row lock isn't: the lock is tied to this
+ * request's MySQL connection and is released automatically when that
+ * connection closes, so a request that dies mid-critical-section can't wedge
+ * it shut — no staleness/TTL bookkeeping needed.
  *
- * The lock has no explicit release-on-crash mechanism (there's no "unlock on
- * disconnect" for options), so it stores its acquisition time and is treated
- * as free once older than $ttl_seconds — a request that dies mid-critical-
- * section can't wedge the lock shut forever. Callers should still call
- * dcs_release_lock() as soon as the critical section ends.
+ * $fn() must not itself emit output (no wp_send_json_*) — the caller turns
+ * its return value into a response after the lock has already been
+ * released, so RELEASE_LOCK() is always reached via the finally below.
+ *
+ * If $fn() reads post meta, it should drop the object cache for that post
+ * first (wp_cache_delete( $post_id, 'post_meta' )) — a persistent object
+ * cache can otherwise serve a copy from before the lock was acquired, which
+ * would defeat the point of locking at all.
+ *
+ * @return mixed|WP_Error
  */
-function dcs_acquire_lock( string $key, int $ttl_seconds = 10 ): bool {
-    $option = 'dcs_lock_' . md5( $key );
+function dcs_with_lock( string $key, callable $fn, int $timeout_seconds = 5 ) {
+    global $wpdb;
 
-    if ( add_option( $option, time(), '', 'no' ) ) {
-        return true;
+    $name = 'dcs_' . md5( $key );
+    $got  = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, $timeout_seconds ) );
+
+    if ( (string) $got !== '1' ) {
+        return new WP_Error(
+            'dcs_lock_timeout',
+            __( 'The system is busy. Please try again in a moment.', 'doodle-clone-scheduler' )
+        );
     }
 
-    $held_since = (int) get_option( $option );
-    if ( $held_since && ( time() - $held_since ) > $ttl_seconds ) {
-        update_option( $option, time(), false );
-        return true;
+    try {
+        return $fn();
+    } finally {
+        $wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
     }
-
-    return false;
-}
-
-/** Releases a lock acquired via dcs_acquire_lock(). */
-function dcs_release_lock( string $key ): void {
-    delete_option( 'dcs_lock_' . md5( $key ) );
 }
 
 // ---------------------------------------------------------------------------
