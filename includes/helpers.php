@@ -455,3 +455,40 @@ function dcs_decode_edit_token( string $token ): array {
 
     return [ 'state' => 'valid', 'data' => $data ];
 }
+
+// ---------------------------------------------------------------------------
+// Anti-bot form timing (HMAC-signed render timestamp)
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a signed token encoding "now", embedded as a hidden field when the
+ * form is rendered. Signed (not a plain timestamp) so it can't just be
+ * backdated by a script that wants to look slow.
+ */
+function dcs_make_timing_token(): string {
+    $ts  = (string) time();
+    $sig = hash_hmac( 'sha256', $ts, dcs_token_secret() );
+    return $ts . '.' . $sig;
+}
+
+/**
+ * Returns the number of seconds between when the form was rendered and now,
+ * or null if the token is missing, malformed, or tampered with.
+ *
+ * Deliberately returns null rather than a false-ish age on failure, so
+ * callers can tell "no usable signal" apart from "arrived instantly" — an
+ * oddly-cached or stripped-down page shouldn't be treated the same as an
+ * actual too-fast bot submission.
+ */
+function dcs_timing_token_age( string $token ): ?int {
+    if ( ! $token || strpos( $token, '.' ) === false ) return null;
+
+    [ $ts, $sig ] = explode( '.', $token, 2 );
+    $expected = hash_hmac( 'sha256', $ts, dcs_token_secret() );
+    if ( ! hash_equals( $expected, $sig ) ) return null;
+
+    $ts = intval( $ts );
+    if ( $ts <= 0 ) return null;
+
+    return time() - $ts;
+}

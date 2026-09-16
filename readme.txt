@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.0.7
+Stable tag: 2.0.8
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,6 +50,13 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.0.8 =
+* Added lightweight, dependency-free bot mitigation to the public booking/poll
+  form: a honeypot field invisible to real visitors, and a signed render
+  timestamp rejecting submissions that arrive faster than a person could
+  plausibly fill the form. No third-party service, no CAPTCHA widget, no
+  added friction for real users.
 
 = 2.0.7 =
 * Fixed: two people booking the last spot in a capped slot at nearly the same

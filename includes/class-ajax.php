@@ -23,6 +23,17 @@ class DCS_Ajax {
             wp_send_json_error( __( 'Security check failed. Please refresh the page and try again.', 'doodle-clone-scheduler' ), 403 );
         }
 
+        // Anti-bot: reject on a filled honeypot field (a real visitor never
+        // sees or fills it) or a submission that arrives faster than a person
+        // could plausibly read and fill this form. Same generic error either
+        // way, and before the rate limiter, so a script tripping this doesn't
+        // even cost it part of its rate-limit budget to learn that.
+        $honeypot   = sanitize_text_field( wp_unslash( $_POST['dcs_hp'] ?? '' ) );
+        $timing_age = dcs_timing_token_age( sanitize_text_field( wp_unslash( $_POST['dcs_ts'] ?? '' ) ) );
+        if ( $honeypot !== '' || ( $timing_age !== null && $timing_age < 3 ) ) {
+            wp_send_json_error( __( 'Something went wrong. Please refresh the page and try again.', 'doodle-clone-scheduler' ) );
+        }
+
         // Security: per-IP throttle so this public, unauthenticated endpoint can't
         // be scripted to flood slots or blast confirmation emails at scale. The
         // nonce alone doesn't stop this — it's valid for ~24h and reusable.

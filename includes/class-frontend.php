@@ -326,6 +326,16 @@ class DCS_Frontend {
         echo '<form id="dcs-booking" class="dcs-booking-form" novalidate>';
         echo wp_nonce_field( 'dcs_book_slot', 'dcs_nonce', true, false );
 
+        // Anti-bot: a signed render timestamp (checked server-side against a
+        // minimum age) plus a honeypot field real visitors never see or fill.
+        // Off-screen rather than display:none — a display:none check is the
+        // first thing a scraper that bothers to look usually tests for.
+        printf( '<input type="hidden" name="dcs_ts" value="%s">', esc_attr( dcs_make_timing_token() ) );
+        echo '<div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px;">'
+            . '<label for="dcs-hp">' . esc_html__( 'Leave this field blank', 'doodle-clone-scheduler' ) . '</label>'
+            . '<input type="text" name="dcs_hp" id="dcs-hp" tabindex="-1" autocomplete="off">'
+            . '</div>';
+
         // Pass the edit token through so the AJAX response can keep the voter
         // in their edit-link context after a resubmission.
         if ( ! empty( $_GET['dcs_token'] ) ) {
