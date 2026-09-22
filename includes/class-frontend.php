@@ -354,10 +354,6 @@ class DCS_Frontend {
             echo '</ul>';
         }
 
-        if ( $is_poll ) {
-            echo '<p class="dcs-instructions"><em>' . esc_html__( 'Select all times that work for you, then enter your name and email below. We\'ll confirm a final time later.', 'doodle-clone-scheduler' ) . '</em></p>';
-        }
-
         echo '<p>';
         printf(
             '<input type="text" name="name" id="dcs-name" placeholder="%s" value="%s" required> ',
