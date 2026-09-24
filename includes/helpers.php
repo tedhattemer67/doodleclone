@@ -339,6 +339,7 @@ function dcs_get_meeting_details( int $post_id ): array {
     $stored = is_array( $stored ) ? $stored : [];
     return [
         'default' => is_array( $stored['default'] ?? null ) ? $stored['default'] : [],
+        'parts'   => is_array( $stored['parts'] ?? null )   ? $stored['parts']   : [],
         'slots'   => is_array( $stored['slots'] ?? null )   ? $stored['slots']   : [],
     ];
 }
@@ -353,37 +354,146 @@ function dcs_meeting_online_fields(): array {
 }
 
 /**
- * Returns the effective details for one slot: the slot's own override
- * layered over the event-wide default.
+ * Layers one override record over a base details record.
  *
- *  - A slot that sets its own meeting link is a different meeting (e.g.
+ *  - An override that sets its own meeting link is a different meeting (e.g.
  *    Teams instead of the default Zoom): link, meeting ID, passcode and
- *    dial-in all come from the slot, and any it leaves blank stay blank.
- *  - A slot with no link of its own keeps the default's meeting and may
+ *    dial-in all come from the override, and any it leaves blank stay blank.
+ *  - An override with no link of its own keeps the base's meeting and may
  *    override individual join fields (e.g. just a different passcode).
  *  - Format, location and notes always fall through field by field; an
- *    override format of '' means "use the default".
+ *    override format of '' means "use the level above".
  */
-function dcs_slot_details( int $post_id, array $slot ): array {
-    $all      = dcs_get_meeting_details( $post_id );
-    $default  = dcs_sanitize_meeting_details( $all['default'] );
-    $override = $all['slots'][ dcs_slot_key( $slot ) ] ?? [];
+function dcs_layer_meeting_details( array $base, $override ): array {
+    if ( ! is_array( $override ) || ! $override ) return $base;
+    $override = dcs_sanitize_meeting_details( $override, true );
+    if ( $override['format'] !== '' ) $base['format'] = $override['format'];
 
-    $out = $default;
-    if ( is_array( $override ) ) {
-        $override = dcs_sanitize_meeting_details( $override, true );
-        if ( $override['format'] !== '' ) $out['format'] = $override['format'];
-
-        $own_meeting = $override['url'] !== '';
-        foreach ( dcs_meeting_detail_fields() as $f ) {
-            if ( $own_meeting && in_array( $f, dcs_meeting_online_fields(), true ) ) {
-                $out[ $f ] = $override[ $f ];
-            } elseif ( $override[ $f ] !== '' ) {
-                $out[ $f ] = $override[ $f ];
-            }
+    $own_meeting = $override['url'] !== '';
+    foreach ( dcs_meeting_detail_fields() as $f ) {
+        if ( $own_meeting && in_array( $f, dcs_meeting_online_fields(), true ) ) {
+            $base[ $f ] = $override[ $f ];
+        } elseif ( $override[ $f ] !== '' ) {
+            $base[ $f ] = $override[ $f ];
         }
     }
+    return $base;
+}
+
+/**
+ * Returns the effective details for one slot, resolved in three levels:
+ * event default → the slot's part (Sessions / series) → the slot itself.
+ * Each level follows dcs_layer_meeting_details()'s rules.
+ */
+function dcs_slot_details( int $post_id, array $slot ): array {
+    $all = dcs_get_meeting_details( $post_id );
+    $out = dcs_sanitize_meeting_details( $all['default'] );
+
+    // Part level applies to Sessions events only (parts left over from
+    // switching an event to another type are ignored).
+    $part_id = dcs_is_sessions_mode( (string) get_post_meta( $post_id, '_meeting_mode', true ) )
+        ? dcs_slot_part_id( $slot, dcs_get_parts( $post_id ) )
+        : '';
+    if ( $part_id !== '' ) {
+        $out = dcs_layer_meeting_details( $out, $all['parts'][ $part_id ] ?? [] );
+    }
+    return dcs_layer_meeting_details( $out, $all['slots'][ dcs_slot_key( $slot ) ] ?? [] );
+}
+
+// ---------------------------------------------------------------------------
+// Sessions / series: parts and attendance
+//
+// A Sessions event is made of parts (_meeting_parts: [ [ 'id', 'title' ], … ],
+// in display order). Each slot names its part in $slot['part']. Every slot is
+// held; each person picks at most one time per part. An event with no parts
+// defined is one implicit part — "one session offered at several times".
+// ---------------------------------------------------------------------------
+
+/** True for the Sessions / series meeting mode. */
+function dcs_is_sessions_mode( string $mode ): bool {
+    return $mode === 'sessions';
+}
+
+/** The event's parts, in order. Always a list of [ 'id' => …, 'title' => … ]. */
+function dcs_get_parts( int $post_id ): array {
+    $parts = get_post_meta( $post_id, '_meeting_parts', true );
+    if ( ! is_array( $parts ) ) return [];
+    $out = [];
+    foreach ( $parts as $p ) {
+        if ( ! is_array( $p ) || empty( $p['id'] ) ) continue;
+        $out[] = [ 'id' => (string) $p['id'], 'title' => (string) ( $p['title'] ?? '' ) ];
+    }
     return $out;
+}
+
+/** True for a well-formed part id (generated client- or server-side). */
+function dcs_valid_part_id( string $id ): bool {
+    return (bool) preg_match( '/^part_[a-z0-9]{4,32}$/', $id );
+}
+
+/**
+ * The part a slot belongs to: its own 'part' if that part still exists,
+ * otherwise the first part (so a slot is never orphaned when a part is
+ * removed). '' when the event has no parts.
+ */
+function dcs_slot_part_id( array $slot, array $parts ): string {
+    if ( ! $parts ) return '';
+    $ids = array_column( $parts, 'id' );
+    $own = (string) ( $slot['part'] ?? '' );
+    return in_array( $own, $ids, true ) ? $own : $ids[0];
+}
+
+/**
+ * Groups slots by part, in part order, each group's slots sorted by start:
+ *   [ [ 'id' => part id|'', 'title' => …, 'slots' => [ slot, … ] ], … ]
+ * With no parts defined, returns a single untitled group holding every slot.
+ * Parts with no slots are left out — there's nothing to pick.
+ */
+function dcs_group_slots_by_part( array $parts, array $slots ): array {
+    $groups = [];
+    if ( ! $parts ) {
+        $groups[''] = [ 'id' => '', 'title' => '', 'slots' => [] ];
+    }
+    foreach ( $parts as $p ) {
+        $groups[ $p['id'] ] = [ 'id' => $p['id'], 'title' => $p['title'], 'slots' => [] ];
+    }
+    foreach ( $slots as $slot ) {
+        $groups[ dcs_slot_part_id( $slot, $parts ) ]['slots'][] = $slot;
+    }
+    foreach ( $groups as $k => $g ) {
+        if ( ! $g['slots'] ) { unset( $groups[ $k ] ); continue; }
+        usort( $groups[ $k ]['slots'], fn( $a, $b ) => intval( $a['start'] ?? 0 ) <=> intval( $b['start'] ?? 0 ) );
+    }
+    return array_values( $groups );
+}
+
+/** Display title for a part: its own title, or "Part N" (1-based). */
+function dcs_part_label( array $group, int $index ): string {
+    return $group['title'] !== ''
+        ? $group['title']
+        : sprintf( __( 'Part %d', 'doodle-clone-scheduler' ), $index + 1 );
+}
+
+/** Attendance rule for a Sessions event: 'required', 'recommended' (default) or 'any'. */
+function dcs_sessions_attendance( int $post_id ): string {
+    $v = get_post_meta( $post_id, '_sessions_attendance', true );
+    return in_array( $v, [ 'required', 'recommended', 'any' ], true ) ? $v : 'recommended';
+}
+
+/**
+ * Part title for a slot, for headings in emails and admin tables.
+ * '' when the event has at most one part (nothing to distinguish).
+ */
+function dcs_slot_part_title( int $post_id, array $slot ): string {
+    // Parts left over from switching an event away from Sessions don't count.
+    if ( ! dcs_is_sessions_mode( (string) get_post_meta( $post_id, '_meeting_mode', true ) ) ) return '';
+    $parts = dcs_get_parts( $post_id );
+    if ( count( $parts ) < 2 ) return '';
+    $id = dcs_slot_part_id( $slot, $parts );
+    foreach ( $parts as $i => $p ) {
+        if ( $p['id'] === $id ) return dcs_part_label( $p, $i );
+    }
+    return '';
 }
 
 /** True when a slot is online/hybrid but has no join link to send. */

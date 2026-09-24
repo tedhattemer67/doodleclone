@@ -5,8 +5,9 @@
  *
  * Save-hook priority map (single canonical registration):
  *  Priority  5  — Snapshot existing slots before overwrite    (dcs_snapshot_pre_save)
+ *  Priority  8  — Save Sessions parts (before slots use them) (save_parts)
  *  Priority 10  — Save slots from $_POST                      (save_slots)
- *  Priority 15  — Save meeting details (default + per slot)   (save_meeting_details)
+ *  Priority 15  — Save meeting details (default/part/slot)    (save_meeting_details)
  *  Priority 20  — Save mode + default duration                (save_mode)
  *  Priority 30  — Save open/closed status                     (save_poll_status)
  *  Priority 40  — Handle close/reopen action + build snapshot (handle_poll_close_reopen)
@@ -25,6 +26,9 @@ class DCS_Admin {
      */
     private static ?array $pending_overrides = null;
 
+    /** Per-part detail overrides collected by save_parts(). null = parts not posted. */
+    private static ?array $pending_part_overrides = null;
+
     public static function init(): void {
         add_action( 'init',            [ __CLASS__, 'register_post_type' ] );
         add_action( 'add_meta_boxes',  [ __CLASS__, 'register_meta_boxes' ] );
@@ -32,6 +36,7 @@ class DCS_Admin {
 
         // Single chained save hook — explicit priorities, no anonymous closures
         add_action( 'save_post_meeting_event', [ __CLASS__, 'dcs_snapshot_pre_save' ],        5,    3 );
+        add_action( 'save_post_meeting_event', [ __CLASS__, 'save_parts' ],                   8,    1 );
         add_action( 'save_post_meeting_event', [ __CLASS__, 'save_slots' ],                   10,   1 );
         add_action( 'save_post_meeting_event', [ __CLASS__, 'save_meeting_details' ],         15,   1 );
         add_action( 'save_post_meeting_event', [ __CLASS__, 'save_mode' ],                    20,   1 );
@@ -71,6 +76,7 @@ class DCS_Admin {
         $post_type = 'meeting_event';
 
         add_meta_box( 'dcs_meeting_type',   __( 'Meeting Type', 'doodle-clone-scheduler' ),    [ __CLASS__, 'render_mode_box' ],        $post_type, 'side',   'high' );
+        add_meta_box( 'dcs_parts',          __( 'Parts (Sessions / series)', 'doodle-clone-scheduler' ), [ __CLASS__, 'render_parts_box' ], $post_type, 'normal', 'high' );
         add_meta_box( 'dcs_slots',          __( 'Meeting Slots', 'doodle-clone-scheduler' ),   [ __CLASS__, 'render_slots_box' ],       $post_type, 'normal', 'high' );
         add_meta_box( 'dcs_meeting_details', __( 'Meeting Details (default for all slots)', 'doodle-clone-scheduler' ), [ __CLASS__, 'render_details_box' ], $post_type, 'normal', 'high' );
         add_meta_box( 'dcs_poll_results',   __( 'Poll Results', 'doodle-clone-scheduler' ),    [ __CLASS__, 'render_results_box' ],     $post_type, 'normal', 'default' );
@@ -89,11 +95,72 @@ class DCS_Admin {
             <input type="radio" name="dcs_meeting_mode" value="booking" <?php checked( $mode, 'booking' ); ?>>
             <?php esc_html_e( '1-on-1 / limited capacity (choose one time)', 'doodle-clone-scheduler' ); ?>
         </label>
-        <label style="display:block;">
+        <label style="display:block;margin-bottom:6px;">
             <input type="radio" name="dcs_meeting_mode" value="poll" <?php checked( $mode, 'poll' ); ?>>
             <?php esc_html_e( 'Group poll (select all times that work)', 'doodle-clone-scheduler' ); ?>
         </label>
+        <label style="display:block;">
+            <input type="radio" name="dcs_meeting_mode" value="sessions" <?php checked( $mode, 'sessions' ); ?>>
+            <?php esc_html_e( 'Sessions / series (all meetings held; people pick which to attend)', 'doodle-clone-scheduler' ); ?>
+        </label>
         <?php
+        $att = dcs_sessions_attendance( $post->ID );
+        $opts = [
+            'recommended' => __( 'All parts recommended (people may skip some)', 'doodle-clone-scheduler' ),
+            'required'    => __( 'All parts required', 'doodle-clone-scheduler' ),
+            'any'         => __( 'Pick any parts', 'doodle-clone-scheduler' ),
+        ];
+        echo '<div id="dcs-attendance" style="margin:8px 0 0 22px;">';
+        echo '<p style="margin:0 0 4px;"><strong>' . esc_html__( 'Attendance', 'doodle-clone-scheduler' ) . '</strong></p>';
+        foreach ( $opts as $val => $label ) {
+            printf(
+                '<label style="display:block;margin-bottom:3px;"><input type="radio" name="dcs_sessions_attendance" value="%s"%s> %s</label>',
+                esc_attr( $val ),
+                checked( $att, $val, false ),
+                esc_html( $label )
+            );
+        }
+        echo '</div>';
+    }
+
+    // =========================================================================
+    // Parts Meta Box (Sessions / series)
+    // =========================================================================
+
+    public static function render_parts_box( WP_Post $post ): void {
+        $parts     = dcs_get_parts( $post->ID );
+        $overrides = dcs_get_meeting_details( $post->ID )['parts'];
+
+        echo '<p class="description">'
+            . esc_html__( 'Used by Sessions / series events. Each part is one meeting of the series; give each slot a part in the Meeting Slots box. Offer a part at several times by giving it several slots. Leave this empty for a single session offered at several times.', 'doodle-clone-scheduler' )
+            . '</p>';
+        echo '<input type="hidden" name="dcs_parts_present" value="1">';
+        echo '<div id="dcs-parts-wrapper">';
+        foreach ( $parts as $i => $p ) {
+            $ov = $overrides[ $p['id'] ] ?? [];
+            self::render_part_row( (string) $i, $p['id'], $p['title'], is_array( $ov ) ? dcs_sanitize_meeting_details( $ov, true ) : [] );
+        }
+        echo '</div>';
+        echo '<p><button type="button" class="button" id="dcs-add-part">' . esc_html__( '+ Add Part', 'doodle-clone-scheduler' ) . '</button></p>';
+
+        echo '<script type="text/template" id="dcs-part-tpl">';
+        self::render_part_row( '__i__', '__id__', '', [] );
+        echo '</script>';
+    }
+
+    private static function render_part_row( string $i, string $id, string $title, array $override ): void {
+        echo '<div class="dcs-part" style="padding:8px 0;border-bottom:1px solid #dcdcde;">';
+        printf( '<input type="hidden" class="dcs-part-id" name="parts[%s][id]" value="%s">', esc_attr( $i ), esc_attr( $id ) );
+        printf(
+            '<label>%s</label> <input type="text" class="regular-text dcs-part-title" name="parts[%s][title]" value="%s" placeholder="%s"> ',
+            esc_html__( 'Title:', 'doodle-clone-scheduler' ),
+            esc_attr( $i ),
+            esc_attr( $title ),
+            esc_attr__( 'e.g. Part 1: Kickoff', 'doodle-clone-scheduler' )
+        );
+        echo '<button type="button" class="button button-link-delete dcs-remove-part">' . esc_html__( 'Remove Part', 'doodle-clone-scheduler' ) . '</button>';
+        self::render_slot_override( "parts[{$i}][details]", $override, __( 'Override meeting details for this part', 'doodle-clone-scheduler' ) );
+        echo '</div>';
     }
 
     // =========================================================================
@@ -104,6 +171,7 @@ class DCS_Admin {
         $slots = get_post_meta( $post->ID, '_meeting_slots', true );
         if ( ! is_array( $slots ) ) $slots = [];
         $overrides = dcs_get_meeting_details( $post->ID )['slots'];
+        $parts     = dcs_get_parts( $post->ID );
         ?>
         <div id="dcs-slot-wrapper">
         <?php foreach ( $slots as $i => $slot ) : ?>
@@ -120,6 +188,7 @@ class DCS_Admin {
 
                 <label><?php esc_html_e( 'Max:', 'doodle-clone-scheduler' ); ?></label>
                 <input type="number" name="slots[<?php echo $i; ?>][max]" value="<?php echo esc_attr( $slot['max'] ?? 1 ); ?>" min="1">
+                <?php self::render_part_select( "slots[{$i}][part]", dcs_slot_part_id( $slot, $parts ), $parts ); ?>
 
                 <div class="dcs-attendees">
                 <?php
@@ -153,14 +222,38 @@ class DCS_Admin {
         echo '<script type="text/template" id="dcs-slot-override-tpl">';
         self::render_slot_override( 'slots[__i__][details]', [] );
         echo '</script>';
+        echo '<script type="text/template" id="dcs-slot-part-tpl">';
+        self::render_part_select( 'slots[__i__][part]', '', $parts );
+        echo '</script>';
     }
 
-    /** Collapsible per-slot "override meeting details" section. */
-    private static function render_slot_override( string $name_prefix, array $values ): void {
+    /**
+     * Part dropdown for a slot (Sessions events only; the footer JS hides it
+     * for other types and rebuilds its options as parts are added/renamed).
+     */
+    private static function render_part_select( string $name, string $current, array $parts ): void {
+        echo ' <span class="dcs-slot-part-wrap"><label>' . esc_html__( 'Part:', 'doodle-clone-scheduler' ) . '</label> ';
+        printf( '<select class="dcs-part-select" name="%s" data-value="%s">', esc_attr( $name ), esc_attr( $current ) );
+        if ( ! $parts ) {
+            echo '<option value="">' . esc_html__( '— (single session) —', 'doodle-clone-scheduler' ) . '</option>';
+        }
+        foreach ( $parts as $i => $p ) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr( $p['id'] ),
+                selected( $current, $p['id'], false ),
+                esc_html( dcs_part_label( $p, $i ) )
+            );
+        }
+        echo '</select></span>';
+    }
+
+    /** Collapsible "override meeting details" section, used by slots and parts. */
+    private static function render_slot_override( string $name_prefix, array $values, string $summary = '' ): void {
         $open = $values && dcs_meeting_details_has_content( $values );
         echo '<details class="dcs-slot-override"' . ( $open ? ' open' : '' ) . ' style="margin:8px 0;">';
-        echo '<summary>' . esc_html__( 'Override meeting details for this slot', 'doodle-clone-scheduler' ) . '</summary>';
-        echo '<p class="description">' . esc_html__( 'Leave a field blank to use the event default from the Meeting Details box. Entering a meeting link here makes this slot a separate meeting: its meeting ID, passcode and dial-in are then taken only from this slot, never from the default.', 'doodle-clone-scheduler' ) . '</p>';
+        echo '<summary>' . esc_html( $summary !== '' ? $summary : __( 'Override meeting details for this slot', 'doodle-clone-scheduler' ) ) . '</summary>';
+        echo '<p class="description">' . esc_html__( 'Leave a field blank to use the details from the level above (event default, then the part for Sessions events). Entering a meeting link here makes this a separate meeting: its meeting ID, passcode and dial-in are then taken only from here, never from above.', 'doodle-clone-scheduler' ) . '</p>';
         self::render_details_fields( $name_prefix, $values, true );
         echo '</details>';
     }
@@ -565,14 +658,25 @@ class DCS_Admin {
      * who's booked and whether each slot's meeting details are complete.
      */
     private static function render_close_booking_box( WP_Post $post ): void {
-        $status = get_post_meta( $post->ID, '_poll_status', true ) ?: 'open';
-        $slots  = get_post_meta( $post->ID, '_meeting_slots', true );
+        $status   = get_post_meta( $post->ID, '_poll_status', true ) ?: 'open';
+        $slots    = get_post_meta( $post->ID, '_meeting_slots', true );
         if ( ! is_array( $slots ) ) $slots = [];
-        usort( $slots, fn( $a, $b ) => intval( $a['start'] ?? 0 ) <=> intval( $b['start'] ?? 0 ) );
+        $sessions = dcs_is_sessions_mode( (string) get_post_meta( $post->ID, '_meeting_mode', true ) );
+        $parts    = $sessions ? dcs_get_parts( $post->ID ) : [];
+
+        // Sessions: rows in part order (then time), with a Part column when
+        // there is more than one part. Otherwise: chronological, as before.
+        $ordered = [];
+        $groups  = $sessions ? dcs_group_slots_by_part( $parts, $slots ) : [ [ 'id' => '', 'title' => '', 'slots' => $slots ] ];
+        if ( ! $sessions ) usort( $groups[0]['slots'], fn( $a, $b ) => intval( $a['start'] ?? 0 ) <=> intval( $b['start'] ?? 0 ) );
+        foreach ( $groups as $gi => $g ) {
+            foreach ( $g['slots'] as $sl ) $ordered[] = [ $sl, dcs_part_label( $g, $gi ) ];
+        }
+        $part_col = $sessions && count( $groups ) > 1;
 
         $missing = [];
         $rows    = '';
-        foreach ( $slots as $sl ) {
+        foreach ( $ordered as [ $sl, $part_label ] ) {
             $attendees = is_array( $sl['attendees'] ?? null ) ? $sl['attendees'] : [];
             $details   = dcs_slot_details( $post->ID, $sl );
             $flag      = dcs_meeting_details_missing_link( $details );
@@ -583,6 +687,7 @@ class DCS_Admin {
                 $attendees
             ) );
             $rows .= '<tr>'
+                . ( $part_col ? '<td>' . esc_html( $part_label ) . '</td>' : '' )
                 . '<td>' . esc_html( dcs_slot_range( $sl ) ) . '</td>'
                 . '<td>' . count( $attendees ) . ' / ' . intval( $sl['max'] ?? 1 ) . '</td>'
                 . '<td>' . ( $names ?: '—' ) . '</td>'
@@ -597,13 +702,18 @@ class DCS_Admin {
         echo '<p>' . esc_html__( 'Closing stops new sign-ups. Once closed, you can email each attendee the final details for their slot (location, meeting link, passcode, dial-in).', 'doodle-clone-scheduler' ) . '</p>';
 
         echo '<table class="widefat striped"><thead><tr>'
+            . ( $part_col ? '<th>' . esc_html__( 'Part', 'doodle-clone-scheduler' ) . '</th>' : '' )
             . '<th>' . esc_html__( 'Time', 'doodle-clone-scheduler' ) . '</th>'
             . '<th>' . esc_html__( 'Booked', 'doodle-clone-scheduler' ) . '</th>'
             . '<th>' . esc_html__( 'Attendees', 'doodle-clone-scheduler' ) . '</th>'
             . '<th>' . esc_html__( 'Meeting details', 'doodle-clone-scheduler' ) . '</th>'
             . '</tr></thead><tbody>'
-            . ( $rows ?: '<tr><td colspan="4">' . esc_html__( 'No time slots defined yet.', 'doodle-clone-scheduler' ) . '</td></tr>' )
+            . ( $rows ?: '<tr><td colspan="' . ( $part_col ? 5 : 4 ) . '">' . esc_html__( 'No time slots defined yet.', 'doodle-clone-scheduler' ) . '</td></tr>' )
             . '</tbody></table>';
+
+        if ( $part_col ) {
+            self::render_sessions_roster( $groups );
+        }
 
         wp_nonce_field( 'dcs_close_poll_action', 'dcs_close_poll_nonce' );
 
@@ -619,6 +729,40 @@ class DCS_Admin {
                 . '</button>';
         }
         echo '</div>';
+    }
+
+    /**
+     * Sessions roster: one row per person, one column per part, showing the
+     * time they picked for that part or "skipping".
+     */
+    private static function render_sessions_roster( array $groups ): void {
+        $people = []; // normalised email => [ name, email, [ part index => range ] ]
+        foreach ( $groups as $gi => $g ) {
+            foreach ( $g['slots'] as $sl ) {
+                foreach ( (array) ( $sl['attendees'] ?? [] ) as $a ) {
+                    $norm = dcs_normalize_email( $a['email'] ?? '' );
+                    if ( ! $norm ) continue;
+                    if ( ! isset( $people[ $norm ] ) ) $people[ $norm ] = [ 'name' => $a['name'] ?? '', 'email' => $a['email'], 'picks' => [] ];
+                    $people[ $norm ]['picks'][ $gi ] = dcs_slot_range( $sl );
+                }
+            }
+        }
+        if ( ! $people ) return;
+
+        echo '<h4 style="margin:16px 0 6px;">' . esc_html__( 'Who is attending each part', 'doodle-clone-scheduler' ) . '</h4>';
+        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Name', 'doodle-clone-scheduler' ) . '</th>';
+        foreach ( $groups as $gi => $g ) echo '<th>' . esc_html( dcs_part_label( $g, $gi ) ) . '</th>';
+        echo '</tr></thead><tbody>';
+        foreach ( $people as $p ) {
+            echo '<tr><td>' . esc_html( $p['name'] ?: $p['email'] ) . '<br><small>' . esc_html( $p['email'] ) . '</small></td>';
+            foreach ( $groups as $gi => $g ) {
+                echo isset( $p['picks'][ $gi ] )
+                    ? '<td>' . esc_html( $p['picks'][ $gi ] ) . '</td>'
+                    : '<td style="color:#787c82;"><em>' . esc_html__( 'skipping', 'doodle-clone-scheduler' ) . '</em></td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
     }
 
     /**
@@ -704,6 +848,9 @@ class DCS_Admin {
             }
         }
 
+        // Parts were saved at priority 8, so this is the current list.
+        $parts = dcs_get_parts( $post_id );
+
         $clean     = [];
         $overrides = [];
         foreach ( $posted_slots as $s ) {
@@ -751,6 +898,12 @@ class DCS_Admin {
                 'duration_minutes' => $dur_mins,
             ];
 
+            // Sessions: which part this slot belongs to (validated against the
+            // saved parts; an unknown or removed part falls back to the first).
+            if ( $parts ) {
+                $row['part'] = dcs_slot_part_id( [ 'part' => sanitize_key( $s['part'] ?? '' ) ], $parts );
+            }
+
             if ( $dur_mins > 0 && $start_ts > 0 ) {
                 $row['end'] = $start_ts + $dur_mins * 60;
             }
@@ -788,23 +941,73 @@ class DCS_Admin {
         }
         self::$pending_overrides = null;
 
+        $part_overrides = self::$pending_part_overrides ?? $stored['parts'];
+        self::$pending_part_overrides = null;
+
         $slots     = get_post_meta( $post_id, '_meeting_slots', true );
         $valid_ids = is_array( $slots ) ? array_map( 'dcs_slot_key', $slots ) : [];
         $overrides = array_intersect_key( $overrides, array_flip( $valid_ids ) );
 
-        if ( ! dcs_meeting_details_has_content( $default ) && ! $overrides ) {
+        $part_ids       = array_column( dcs_get_parts( $post_id ), 'id' );
+        $part_overrides = array_intersect_key( $part_overrides, array_flip( $part_ids ) );
+
+        if ( ! dcs_meeting_details_has_content( $default ) && ! $overrides && ! $part_overrides ) {
             delete_post_meta( $post_id, '_meeting_details' );
             return;
         }
-        update_post_meta( $post_id, '_meeting_details', [ 'default' => $default, 'slots' => $overrides ] );
+        update_post_meta( $post_id, '_meeting_details', [ 'default' => $default, 'parts' => $part_overrides, 'slots' => $overrides ] );
+    }
+
+    /**
+     * Priority 8: Save Sessions parts (titles, order, per-part detail
+     * overrides). Runs before save_slots() so slot → part assignments are
+     * validated against the list just saved. Part ids are generated in the
+     * browser for new parts (so a new slot can be assigned to a new part in
+     * the same save); anything malformed gets a fresh server-side id.
+     */
+    public static function save_parts( int $post_id ): void {
+        if ( ! self::should_save( $post_id ) ) return;
+        if ( empty( $_POST['dcs_parts_present'] ) ) return;
+        if ( ! isset( $_POST['dcs_save_details_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dcs_save_details_nonce'] ) ), 'dcs_save_details_action' ) ) return;
+
+        $posted = isset( $_POST['parts'] ) && is_array( $_POST['parts'] ) ? wp_unslash( $_POST['parts'] ) : [];
+
+        $parts     = [];
+        $overrides = [];
+        $seen      = [];
+        foreach ( $posted as $p ) {
+            if ( ! is_array( $p ) ) continue;
+            $id = sanitize_key( $p['id'] ?? '' );
+            if ( ! dcs_valid_part_id( $id ) || isset( $seen[ $id ] ) ) {
+                $id = 'part_' . substr( md5( uniqid( '', true ) . count( $parts ) ), 0, 12 );
+            }
+            $seen[ $id ] = true;
+            $parts[]     = [ 'id' => $id, 'title' => sanitize_text_field( $p['title'] ?? '' ) ];
+
+            if ( isset( $p['details'] ) ) {
+                $ov = dcs_sanitize_meeting_details( $p['details'], true );
+                if ( dcs_meeting_details_has_content( $ov ) ) $overrides[ $id ] = $ov;
+            }
+        }
+
+        if ( $parts ) {
+            update_post_meta( $post_id, '_meeting_parts', $parts );
+        } else {
+            delete_post_meta( $post_id, '_meeting_parts' );
+        }
+        self::$pending_part_overrides = $overrides;
     }
 
     /** Priority 20: Save meeting mode and default duration. */
     public static function save_mode( int $post_id ): void {
         if ( ! self::should_save( $post_id ) ) return;
         if ( isset( $_POST['dcs_meeting_mode'] ) ) {
-            $mode = $_POST['dcs_meeting_mode'] === 'poll' ? 'poll' : 'booking';
+            $mode = in_array( $_POST['dcs_meeting_mode'], [ 'poll', 'sessions' ], true ) ? $_POST['dcs_meeting_mode'] : 'booking';
             update_post_meta( $post_id, '_meeting_mode', $mode );
+        }
+        if ( isset( $_POST['dcs_sessions_attendance'] ) ) {
+            $att = in_array( $_POST['dcs_sessions_attendance'], [ 'required', 'recommended', 'any' ], true ) ? $_POST['dcs_sessions_attendance'] : 'recommended';
+            update_post_meta( $post_id, '_sessions_attendance', $att );
         }
         if ( isset( $_POST['dcs_default_duration'] ) ) {
             $dur = max( 1, intval( $_POST['dcs_default_duration'] ) );
@@ -1010,7 +1213,8 @@ class DCS_Admin {
                     + '<label>Date:</label> <input type="date" name="slots['+i+'][date]" required><br>'
                     + '<label>Time:</label> <input type="time" name="slots['+i+'][time]" required>'
                     + '<label>Duration:</label> '+durationSelect('slots['+i+'][duration_minutes]','')+' <br>'
-                    + '<label>Max:</label>  <input type="number" name="slots['+i+'][max]" min="1" value="1"><br>'
+                    + '<label>Max:</label>  <input type="number" name="slots['+i+'][max]" min="1" value="1">'
+                    + $('#dcs-slot-part-tpl').html().replace(/__i__/g, i) + '<br>'
                     + '<div class="dcs-attendees">' + attendeeRow(i, 0, '', '') + '</div>'
                     + '<button type="button" class="dcs-add-att button">Add Attendee</button> '
                     + '<button type="button" class="dcs-remove-slot button button-link-delete">Remove Slot</button>'
@@ -1029,6 +1233,65 @@ class DCS_Admin {
             $(document).on('change', 'select.dcs-format', function(){ toggleDetailFields($(this)); });
             $('select.dcs-format').each(function(){ toggleDetailFields($(this)); });
 
+            // --- Sessions / series: parts ---------------------------------
+            function newPartId() {
+                var s = 'part_';
+                for (var k = 0; k < 12; k++) s += '0123456789abcdefghijklmnopqrstuvwxyz'.charAt(Math.floor(Math.random() * 36));
+                return s;
+            }
+            // Rebuild every slot's Part dropdown from the current part rows,
+            // keeping each slot's selection (or the first part if its part is gone).
+            function refreshPartSelects() {
+                var parts = [];
+                $('#dcs-parts-wrapper .dcs-part').each(function(n){
+                    var title = $.trim($(this).find('.dcs-part-title').val());
+                    parts.push({ id: $(this).find('.dcs-part-id').val(), label: title || ('Part ' + (n + 1)) });
+                });
+                $('select.dcs-part-select').each(function(){
+                    var $sel = $(this), cur = $sel.val() || $sel.data('value') || '';
+                    $sel.empty();
+                    if (!parts.length) {
+                        $sel.append($('<option>', { value: '', text: '— (single session) —' }));
+                        return;
+                    }
+                    var found = false;
+                    parts.forEach(function(p){
+                        $sel.append($('<option>', { value: p.id, text: p.label }));
+                        if (p.id === cur) found = true;
+                    });
+                    $sel.val(found ? cur : parts[0].id);
+                });
+            }
+            function reindexParts() {
+                $('#dcs-parts-wrapper .dcs-part').each(function(idx){
+                    $(this).find('input, select, textarea').each(function(){
+                        var name = $(this).attr('name');
+                        if (name) $(this).attr('name', name.replace(/parts\[[^\]]+\]/, 'parts['+idx+']'));
+                    });
+                });
+            }
+            $('#dcs-add-part').on('click', function(){
+                var i = $('#dcs-parts-wrapper .dcs-part').length;
+                var html = $('#dcs-part-tpl').html().replace(/__i__/g, i).replace(/__id__/g, newPartId());
+                $('#dcs-parts-wrapper').append(html);
+                $('#dcs-parts-wrapper .dcs-part:last select.dcs-format').each(function(){ toggleDetailFields($(this)); });
+                refreshPartSelects();
+            });
+            $(document).on('click', '.dcs-remove-part', function(){
+                $(this).closest('.dcs-part').remove();
+                reindexParts();
+                refreshPartSelects();
+            });
+            $(document).on('input', '.dcs-part-title', refreshPartSelects);
+
+            // Show Sessions-only controls only for the Sessions type.
+            function toggleSessionsUi() {
+                var sessions = $('input[name="dcs_meeting_mode"]:checked').val() === 'sessions';
+                $('#dcs-attendance, #dcs_parts, .dcs-slot-part-wrap').toggle(sessions);
+            }
+            $(document).on('change', 'input[name="dcs_meeting_mode"]', toggleSessionsUi);
+            toggleSessionsUi();
+
             $(document).on('click', '.dcs-add-att', function(){
                 var $slot  = $(this).closest('.dcs-slot');
                 var i      = $slot.data('index');
@@ -1043,6 +1306,8 @@ class DCS_Admin {
             $('#dcs-add-slot').on('click', function(){
                 var next = $('#dcs-slot-wrapper .dcs-slot').length;
                 $('#dcs-slot-wrapper').append(slotBlock(next));
+                refreshPartSelects();
+                toggleSessionsUi();
             });
 
             $(document).on('click', '.dcs-remove-slot', function(){

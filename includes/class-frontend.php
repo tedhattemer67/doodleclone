@@ -79,12 +79,19 @@ class DCS_Frontend {
             $result = dcs_decode_edit_token( $raw );
             if ( $result['state'] === 'expired' && intval( $result['data']['event_id'] ) === $post_id ) {
                 $notice = self::render_expired_token_notice();
-                return $content . $notice . self::render_form( $post_id, $slots, $is_poll, [] );
+                $blank  = [ 'email' => '', 'name' => '', 'slot_keys' => [] ];
+                return $content . $notice . ( dcs_is_sessions_mode( $mode )
+                    ? self::render_sessions_form( $post_id, $slots, $blank )
+                    : self::render_form( $post_id, $slots, $is_poll, $blank ) );
             }
         }
 
         // Resolve prefill data from a valid magic edit-link token
         $prefill = self::resolve_prefill( $post_id, $slots );
+
+        if ( dcs_is_sessions_mode( $mode ) ) {
+            return $content . self::render_sessions_form( $post_id, $slots, $prefill );
+        }
 
         // Success notice after redirect
         $notice = self::render_success_notice( $slots );
@@ -337,6 +344,28 @@ class DCS_Frontend {
         }
 
         ob_start();
+        self::render_form_open();
+
+        foreach ( $grouped as $date => $day_slots ) {
+            echo '<h3>' . esc_html( date_i18n( 'l, F j, Y', strtotime( $date ) ) ) . '</h3>';
+            echo '<ul class="dcs-slots">';
+            foreach ( $day_slots as $slot ) {
+                self::render_slot_item( $slot, $is_poll, $prefill );
+            }
+            echo '</ul>';
+        }
+
+        self::render_form_close(
+            $post_id,
+            $prefill,
+            $is_poll ? __( 'Submit Availability', 'doodle-clone-scheduler' ) : __( 'Book', 'doodle-clone-scheduler' )
+        );
+
+        return ob_get_clean();
+    }
+
+    /** Opening <form> tag plus the hidden nonce / anti-bot / edit-token fields shared by every form. */
+    private static function render_form_open(): void {
         echo '<form id="dcs-booking" class="dcs-booking-form" novalidate>';
         echo wp_nonce_field( 'dcs_book_slot', 'dcs_nonce', true, false );
 
@@ -358,16 +387,10 @@ class DCS_Frontend {
                 esc_attr( sanitize_text_field( $_GET['dcs_token'] ) )
             );
         }
+    }
 
-        foreach ( $grouped as $date => $day_slots ) {
-            echo '<h3>' . esc_html( date_i18n( 'l, F j, Y', strtotime( $date ) ) ) . '</h3>';
-            echo '<ul class="dcs-slots">';
-            foreach ( $day_slots as $slot ) {
-                self::render_slot_item( $slot, $is_poll, $prefill );
-            }
-            echo '</ul>';
-        }
-
+    /** Name / email fields, event id, submit button, closing tag and message area. */
+    private static function render_form_close( int $post_id, array $prefill, string $btn_label ): void {
         echo '<p>';
         printf(
             '<input type="text" name="name" id="dcs-name" placeholder="%s" value="%s" required> ',
@@ -383,12 +406,91 @@ class DCS_Frontend {
 
         printf( '<input type="hidden" name="event_id" value="%d">', $post_id );
 
-        $btn_label = $is_poll
-            ? esc_html__( 'Submit Availability', 'doodle-clone-scheduler' )
-            : esc_html__( 'Book', 'doodle-clone-scheduler' );
-        echo '<button type="submit">' . $btn_label . '</button>';
+        echo '<button type="submit">' . esc_html( $btn_label ) . '</button>';
         echo '</form>';
         echo '<div id="dcs-message" aria-live="polite"></div>';
+    }
+
+    /**
+     * Sessions / series form: one radio group per part. Each option shows how
+     * many places are left; full times are disabled unless this person
+     * already holds them (editing via their link). "Can't attend" is offered
+     * unless every part is required.
+     */
+    private static function render_sessions_form( int $post_id, array $slots, array $prefill ): string {
+        $groups     = dcs_group_slots_by_part( dcs_get_parts( $post_id ), $slots );
+        $attendance = dcs_sessions_attendance( $post_id );
+        $multi      = count( $groups ) > 1;
+        $editing    = ! empty( $prefill['slot_keys'] );
+        // A single session offered at several times: one pick is always
+        // required, so there's no "Can't attend" option.
+        $can_skip   = $multi && $attendance !== 'required';
+
+        ob_start();
+        self::render_form_open();
+
+        if ( $multi && $attendance === 'recommended' ) {
+            echo '<p class="dcs-attendance-note">' . esc_html__( 'Attending every part is recommended, but you can skip any you can\'t make.', 'doodle-clone-scheduler' ) . '</p>';
+        } elseif ( $multi && $attendance === 'required' ) {
+            echo '<p class="dcs-attendance-note">' . esc_html__( 'Please choose a time for every part.', 'doodle-clone-scheduler' ) . '</p>';
+        }
+
+        foreach ( $groups as $gi => $g ) {
+            $field = 'part_slots[' . $gi . ']';
+
+            // Which option starts selected: the person's current pick when
+            // editing; otherwise, for "recommended", a part's only time.
+            $selected = '';
+            foreach ( $g['slots'] as $sl ) {
+                if ( in_array( dcs_slot_key( $sl ), $prefill['slot_keys'], true ) ) $selected = dcs_slot_key( $sl );
+            }
+            if ( $selected === '' && ! $editing && $attendance === 'recommended' && count( $g['slots'] ) === 1 ) {
+                $only = $g['slots'][0];
+                if ( count( (array) ( $only['attendees'] ?? [] ) ) < intval( $only['max'] ?? 1 ) ) $selected = dcs_slot_key( $only );
+            }
+
+            echo '<fieldset class="dcs-part" style="border:0;padding:0;margin:0 0 1em;">';
+            if ( $multi ) {
+                echo '<legend><h3 style="margin:0 0 .4em;">' . esc_html( dcs_part_label( $g, $gi ) ) . '</h3></legend>';
+            }
+            echo '<ul class="dcs-slots">';
+            foreach ( $g['slots'] as $sl ) {
+                $key   = dcs_slot_key( $sl );
+                $taken = count( (array) ( $sl['attendees'] ?? [] ) );
+                $max   = intval( $sl['max'] ?? 1 );
+                $mine  = in_array( $key, $prefill['slot_keys'], true );
+                $left  = max( 0, $max - $taken );
+                $full  = $left === 0 && ! $mine;
+
+                $note = $full
+                    ? esc_html__( 'Full', 'doodle-clone-scheduler' )
+                    : esc_html( sprintf( _n( '%d spot left', '%d spots left', $left, 'doodle-clone-scheduler' ), $left ) );
+                if ( $mine ) $note = esc_html__( 'your current choice', 'doodle-clone-scheduler' );
+
+                printf(
+                    '<li><label%s><input type="radio" name="%s" value="%s"%s%s%s> %s <span class="dcs-spots">(%s)</span></label></li>',
+                    $full ? ' class="dcs-slot-full"' : '',
+                    esc_attr( $field ),
+                    esc_attr( $key ),
+                    checked( $selected, $key, false ),
+                    $full ? ' disabled' : '',
+                    $can_skip ? '' : ' required',
+                    esc_html( dcs_slot_range( $sl ) ),
+                    $note
+                );
+            }
+            if ( $can_skip ) {
+                printf(
+                    '<li><label><input type="radio" name="%s" value=""%s> %s</label></li>',
+                    esc_attr( $field ),
+                    $selected === '' ? ' checked' : '',
+                    esc_html__( "Can't attend this part", 'doodle-clone-scheduler' )
+                );
+            }
+            echo '</ul></fieldset>';
+        }
+
+        self::render_form_close( $post_id, $prefill, $editing ? __( 'Update my sessions', 'doodle-clone-scheduler' ) : __( 'Register', 'doodle-clone-scheduler' ) );
 
         return ob_get_clean();
     }

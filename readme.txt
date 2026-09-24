@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.2.0
+Stable tag: 2.3.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -19,6 +19,11 @@ ads and clutter of hosted schedulers:
   capacity and fills up.
 * **Group availability poll** — attendees check every slot that works; the
   organiser reviews the results and closes the poll on a final time.
+* **Sessions / series** — every meeting is held. The event is made of parts
+  (e.g. a 3-part series), each offered at one or more times with its own
+  capacity; attendees pick at most one time per part and may skip parts
+  (unless all parts are required). With no parts defined, it's one session
+  offered at several times.
 
 Other features:
 
@@ -44,7 +49,8 @@ wp-config.php to pin one, or leave it unset to use the site's own timezone.
 1. Upload the plugin zip via Plugins → Add New → Upload Plugin, or extract the
    `doodle-clone-scheduler` folder into `wp-content/plugins/`.
 2. Activate the plugin.
-3. Create a **Meeting Event**, choose its type (booking or group poll), add
+3. Create a **Meeting Event**, choose its type (booking, group poll or
+   sessions / series), add
    time slots, and publish. The booking / poll form is appended to the event's
    page automatically.
 
@@ -55,6 +61,36 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.3.0 =
+* New meeting type: **Sessions / series** (all meetings held; people pick
+  which to attend).
+  * New Parts box: add, rename and remove parts, and override meeting
+    details per part. Each slot gets a Part dropdown.
+  * Attendance setting: all parts recommended (default; may skip parts),
+    all parts required, or pick any.
+  * Public form: one group per part, places left per time, full times
+    disabled, "Can't attend this part" where skipping is allowed.
+  * Sign-up is capacity-checked under one event-wide lock, one time per
+    part, one registration per person (normalised email). A new submission
+    replaces earlier picks; once an edit link is issued, changes need it.
+    An edit never loses a place the person already holds to "full".
+  * Sign-up email lists the person's schedule (incl. skipped parts) and
+    their edit link — no meeting details or .ics until registration closes.
+  * Close box shows a Part column and a who-attends-which-part roster.
+    Final details: each person gets their own schedule, a heading per part,
+    each session's details and one .ics per session.
+* Meeting details now resolve in three levels for Sessions: event default,
+  then part, then slot — same "own link = own meeting" rule at each level.
+* Calendar descriptions are readable: details grouped into sections with
+  blank lines between. The Google Calendar link sends them as HTML line
+  breaks (Google ignores plain newlines); the .ics adds an HTML version for
+  Outlook.
+* Fixed: opening an expired edit link on an open poll caused a fatal error
+  (PHP 8 TypeError) instead of the "link expired" notice.
+* Tests: `tests/` holds a stubbed-WordPress test suite
+  (`php tests/test-meeting-details.php`, `php tests/test-sessions.php`);
+  excluded from the plugin zip.
 
 = 2.2.0 =
 * New **Meeting Details** box: format (in person / online / hybrid),

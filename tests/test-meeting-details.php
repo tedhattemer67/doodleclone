@@ -4,65 +4,7 @@
  * Run from the repo root:  php tests/test-meeting-details.php
  * No WordPress or database needed — tests/wp-stubs.php stands in for WP.
  */
-require __DIR__ . '/wp-stubs.php';
-require dirname( __DIR__ ) . '/doodle-clone-scheduler.php';
-
-error_reporting( E_ALL );
-set_error_handler( function ( $no, $str, $file, $line ) {
-    echo "PHP WARNING/NOTICE: $str in " . basename( $file ) . ":$line\n";
-    $GLOBALS['fail']++;
-    return true;
-} );
-
-$pass = 0; $fail = 0; $section = '';
-function section( $s ) { global $section; $section = $s; echo "\n== $s\n"; }
-function ok( $cond, $msg ) {
-    global $pass, $fail;
-    if ( $cond ) { $pass++; echo "  ok   $msg\n"; }
-    else         { $fail++; echo "  FAIL $msg\n"; }
-}
-function make_event( $id, $mode, $title ) {
-    $GLOBALS['_posts'][ $id ] = new WP_Post( $id, $title );
-    update_post_meta( $id, '_meeting_mode', $mode );
-    return $GLOBALS['_posts'][ $id ];
-}
-/** Runs the whole save_post_meeting_event chain in priority order, like WP does. */
-function save_event( $id, array $post ) {
-    $_POST = wp_slash( $post ); // WordPress slashes superglobals
-    $p = get_post( $id );
-    DCS_Admin::dcs_snapshot_pre_save( $id, $p, true );
-    DCS_Admin::save_slots( $id );
-    DCS_Admin::save_meeting_details( $id );
-    DCS_Admin::save_mode( $id );
-    DCS_Admin::save_poll_status( $id, $p );
-    DCS_Admin::handle_poll_close_reopen( $id, $p );
-    DCS_Admin::handle_announcement( $id, $p );
-    DCS_Admin::normalize_slots( $id );
-    DCS_Admin::merge_durations_from_snapshot( $id );
-    $_POST = [];
-}
-function slots( $id ) { return get_post_meta( $id, '_meeting_slots', true ); }
-function ajax( array $post ) {
-    $ts    = (string) ( time() - 10 );
-    $_POST = wp_slash( $post + [
-        'dcs_nonce' => 'nonce-dcs_book_slot',
-        'dcs_ts'    => $ts . '.' . hash_hmac( 'sha256', $ts, AUTH_SALT ),
-    ] );
-    try { DCS_Ajax::handle_booking(); } catch ( JsonResponse $r ) { $_POST = []; return $r; }
-    $_POST = [];
-    return null;
-}
-function mails_to( $to ) { return array_values( array_filter( $GLOBALS['_mail'], fn( $m ) => $m['to'] === $to ) ); }
-function render( callable $fn ) { ob_start(); $fn(); return ob_get_clean(); }
-function front( $id ) { $GLOBALS['_current_post'] = $id; $_GET = []; return DCS_Frontend::inject_form( '<p>body</p>' ); }
-function ics_lines_ok( string $ics ): bool {
-    if ( ! str_contains( $ics, "\r\n" ) ) return false;
-    foreach ( explode( "\r\n", $ics ) as $l ) {
-        if ( strlen( $l ) > 75 || ! preg_match( '//u', $l ) ) return false;
-    }
-    return true;
-}
-function ics_unfold( string $ics ): string { return str_replace( "\r\n ", '', $ics ); }
+require __DIR__ . '/bootstrap.php';
 
 $D1      = date( 'Y-m-d', strtotime( '+10 days' ) );
 $SECRETS = [ 'zoom.us/j/111', 'secret-pass', 'teams.microsoft.com', 'teams-pass', '558 8656', 'Brien' ];
@@ -337,6 +279,15 @@ ok( $n === 1 && count( $h ) === 1, 'old send_poll_announcement() still works (wr
 ok( ! str_contains( $h[0]['body'], 'Format' ) && ! str_contains( $h[0]['body'], 'Join online' ), 'no empty detail rows for events without details' );
 ok( ! str_contains( $h[0]['ics'][0], 'LOCATION' ) && ! str_contains( $h[0]['ics'][0], 'URL:' ), 'no LOCATION/URL in .ics without details' );
 ok( ! str_contains( $h[0]['ics'][0], 'X-ALT-DESC' ), 'no HTML description in .ics without details' );
+// Expired edit link on an open poll: used to fatal (in_array on a missing
+// prefill key); must show the "expired" notice and a blank form instead.
+make_event( 302, 'poll', 'Open Poll' );
+update_post_meta( 302, '_meeting_slots', [ [ 'id' => 'slot_p1', 'date' => $D1, 'time' => '11:00', 'duration_minutes' => 30, 'max' => 1, 'attendees' => [] ] ] );
+$b64     = rtrim( strtr( base64_encode( json_encode( [ 'event_id' => 302, 'email' => 'x@example.com', 'exp' => time() - 60 ] ) ), '+/', '-_' ), '=' );
+$expired = $b64 . '.' . hash_hmac( 'sha256', $b64, AUTH_SALT );
+$html    = front( 302, $expired );
+ok( str_contains( $html, 'Your edit link has expired' ) && str_contains( $html, 'name="slot_ids[]"' ), 'expired edit link on open poll: notice + blank form (was a fatal error)' );
+
 make_event( 301, 'booking', 'Old Booking' );
 update_post_meta( 301, '_meeting_slots', [ [ 'id' => 'slot_b1', 'date' => $D1, 'time' => '11:00', 'duration_minutes' => 30, 'max' => 2, 'attendees' => [] ] ] );
 ok( str_contains( front( 301 ), 'dcs-booking' ), 'existing 1-on-1 with no status meta is open' );
@@ -355,5 +306,4 @@ $res = render( fn() => DCS_Admin::render_results_box( get_post( 200 ) ) );
 ok( str_contains( $res, 'Voter Roster' ), 'poll results box still renders' );
 
 // ---------------------------------------------------------------------------
-echo "\n$pass passed, $fail failed\n";
-exit( $fail ? 1 : 0 );
+finish();

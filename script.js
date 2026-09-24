@@ -23,11 +23,12 @@ jQuery( document ).ready( function ( $ ) {
                 if ( response.success ) {
                     var d = response.data || {};
 
-                    if ( d.mode === 'poll' ) {
-                        // Show contextual message depending on whether this was an edit
-                        var msg = d.is_update
+                    if ( d.mode === 'poll' || d.mode === 'sessions' ) {
+                        // Show contextual message depending on whether this was an edit.
+                        // Sessions sends its own wording; polls use the defaults below.
+                        var msg = d.message || ( d.is_update
                             ? 'Your availability has been updated. Check your email for a fresh edit link.'
-                            : 'Thanks! Your availability has been recorded. Check your email for a link to edit your response.';
+                            : 'Thanks! Your availability has been recorded. Check your email for a link to edit your response.' );
                         $message.text( msg );
 
                         // Carry the fresh token forward in the live form too, not just the

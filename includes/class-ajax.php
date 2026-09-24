@@ -79,6 +79,8 @@ class DCS_Ajax {
         // inside it, so there's no point reading it here first.
         if ( $mode === 'poll' || $mode === 'group' ) {
             self::handle_poll_vote( $event_id, $name, $email );
+        } elseif ( dcs_is_sessions_mode( $mode ) ) {
+            self::handle_sessions_signup( $event_id, $name, $email );
         } else {
             self::handle_single_booking( $event_id, $name, $email );
         }
@@ -202,6 +204,139 @@ class DCS_Ajax {
             'user'      => $name,
             'is_update' => $is_update,
             'token'     => $fresh_token,
+        ] );
+    }
+
+    // -------------------------------------------------------------------------
+    // Private: Sessions / series sign-up
+    // -------------------------------------------------------------------------
+
+    /**
+     * Registers (or re-registers) one person for a Sessions event: at most one
+     * time per part, capacity-checked, all under one event-wide lock since a
+     * single submission can take places in several slots at once.
+     *
+     * Semantics mirror the other two types where they overlap:
+     *  - replace-by-email: a new submission replaces the person's earlier picks
+     *    (like a poll vote), so the edit link can change or drop parts;
+     *  - once an edit link has been issued for an email, changes require it;
+     *  - identity is the normalised email (like 1-on-1), so Gmail dot/+tag
+     *    variants can't hold extra places.
+     */
+    private static function handle_sessions_signup( int $event_id, string $name, string $email ): void {
+        $picked = array_values( array_filter(
+            array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['part_slots'] ?? [] ) ) ),
+            fn( $k ) => $k !== ''
+        ) );
+
+        $norm       = dcs_normalize_email( $email );
+        $edit_token = sanitize_text_field( wp_unslash( $_POST['dcs_edit_token'] ?? '' ) );
+        $issued_key = '_dcs_token_issued_' . md5( $norm );
+
+        $result = dcs_with_lock( 'sessions_' . $event_id, function () use ( $event_id, $name, $email, $norm, $picked, $edit_token, $issued_key ) {
+            // Drop any object-cached copy so the read reflects the DB right now.
+            wp_cache_delete( $event_id, 'post_meta' );
+
+            $slots = get_post_meta( $event_id, '_meeting_slots', true );
+            if ( ! is_array( $slots ) ) $slots = [];
+            $parts      = dcs_get_parts( $event_id );
+            $groups     = dcs_group_slots_by_part( $parts, $slots );
+            $attendance = dcs_sessions_attendance( $event_id );
+
+            $is_mine = fn( $a ) => dcs_normalize_email( is_array( $a ) ? ( $a['email'] ?? '' ) : '' ) === $norm;
+
+            $held      = []; // slot keys this person already holds
+            $by_key    = [];
+            foreach ( $slots as $i => $slot ) {
+                $key            = dcs_slot_key( $slot );
+                $by_key[ $key ] = $i;
+                foreach ( (array) ( $slot['attendees'] ?? [] ) as $a ) {
+                    if ( $is_mine( $a ) ) $held[ $key ] = true;
+                }
+            }
+            $is_update = (bool) $held;
+
+            // Security: same rule as poll votes — once an edit link has been
+            // issued for this email, only its holder can change the picks.
+            if ( get_post_meta( $event_id, $issued_key, true ) ) {
+                $token      = $edit_token ? dcs_parse_edit_token( $edit_token ) : false;
+                $authorized = $token
+                    && intval( $token['event_id'] ) === $event_id
+                    && dcs_normalize_email( $token['email'] ) === $norm;
+                if ( ! $authorized ) {
+                    return [ 'ok' => false, 'code' => 403, 'error' => __( 'This email address is already registered. Please use the edit link that was emailed to you to change your sessions.', 'doodle-clone-scheduler' ) ];
+                }
+            }
+
+            // Validate: every pick is a real slot, at most one per part.
+            $picked_parts = [];
+            foreach ( $picked as $key ) {
+                if ( ! isset( $by_key[ $key ] ) ) {
+                    return [ 'ok' => false, 'error' => __( 'One of the selected times is no longer available. Please refresh the page and try again.', 'doodle-clone-scheduler' ) ];
+                }
+                $part = dcs_slot_part_id( $slots[ $by_key[ $key ] ], $parts );
+                if ( isset( $picked_parts[ $part ] ) ) {
+                    return [ 'ok' => false, 'error' => __( 'Please choose only one time for each part.', 'doodle-clone-scheduler' ) ];
+                }
+                $picked_parts[ $part ] = $key;
+            }
+
+            if ( $attendance === 'required' && count( $picked_parts ) < count( $groups ) ) {
+                return [ 'ok' => false, 'error' => __( 'Please choose a time for every part.', 'doodle-clone-scheduler' ) ];
+            }
+            if ( ! $picked_parts ) {
+                return [ 'ok' => false, 'error' => __( 'Please choose at least one session.', 'doodle-clone-scheduler' ) ];
+            }
+
+            // Capacity and past-start checks. A place the person already holds
+            // always counts as theirs, so an edit never loses it to "full".
+            $grace = (int) apply_filters( 'dcs_booking_past_grace', 15 * MINUTE_IN_SECONDS );
+            foreach ( $picked_parts as $key ) {
+                if ( isset( $held[ $key ] ) ) continue;
+                $slot  = $slots[ $by_key[ $key ] ];
+                $start = intval( $slot['start'] ?? 0 );
+                if ( $start > 0 && time() > $start + $grace ) {
+                    return [ 'ok' => false, 'error' => sprintf( __( '%s has already started.', 'doodle-clone-scheduler' ), dcs_slot_range( $slot ) ) ];
+                }
+                $others = array_filter( (array) ( $slot['attendees'] ?? [] ), fn( $a ) => ! $is_mine( $a ) );
+                if ( count( $others ) >= intval( $slot['max'] ?? 1 ) ) {
+                    return [ 'ok' => false, 'error' => sprintf( __( 'Sorry, %s is already full.', 'doodle-clone-scheduler' ), dcs_slot_range( $slot ) ) ];
+                }
+            }
+
+            // Replace this person's picks.
+            $chosen = [];
+            foreach ( $slots as $i => $slot ) {
+                $att = array_values( array_filter( (array) ( $slot['attendees'] ?? [] ), fn( $a ) => ! $is_mine( $a ) ) );
+                if ( in_array( dcs_slot_key( $slot ), $picked_parts, true ) ) {
+                    $att[]    = [ 'name' => $name, 'email' => $email ];
+                    $chosen[] = $slot;
+                }
+                $slots[ $i ]['attendees'] = $att;
+            }
+            update_post_meta( $event_id, '_meeting_slots', $slots );
+            update_post_meta( $event_id, $issued_key, time() );
+
+            return [ 'ok' => true, 'is_update' => $is_update, 'chosen' => $chosen ];
+        } );
+
+        if ( is_wp_error( $result ) ) {
+            wp_send_json_error( $result->get_error_message() );
+        }
+        if ( empty( $result['ok'] ) ) {
+            wp_send_json_error( $result['error'], $result['code'] ?? null );
+        }
+
+        DCS_Mailer::send_sessions_confirmation( $event_id, $name, $email, $result['chosen'], $result['is_update'] );
+
+        wp_send_json_success( [
+            'mode'      => 'sessions',
+            'user'      => $name,
+            'is_update' => $result['is_update'],
+            'token'     => dcs_make_edit_token( $event_id, $email ),
+            'message'   => $result['is_update']
+                ? __( 'Your sessions have been updated. Check your email for your schedule and a fresh edit link.', 'doodle-clone-scheduler' )
+                : __( "Thanks! You're registered. Check your email for your schedule and a link to change it.", 'doodle-clone-scheduler' ),
         ] );
     }
 

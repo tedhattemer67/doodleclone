@@ -101,6 +101,62 @@ class DCS_Mailer {
     }
 
     /**
+     * Sessions / series sign-up confirmation: the person's schedule so far
+     * (one line per part, including parts they're skipping) plus the magic
+     * edit link. No meeting details and no .ics yet — picks can still change
+     * until registration closes, and a stale calendar entry for a dropped
+     * session would be worse than none. The final-details email carries both.
+     *
+     * @param array $chosen  The slots this person is now registered for.
+     */
+    public static function send_sessions_confirmation( int $event_id, string $name, string $email, array $chosen, bool $is_update = false ): void {
+        $title = html_entity_decode( get_the_title( $event_id ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+        // Same throttle as poll confirmations: first submissions at most one
+        // email per minute per address; edits always send a fresh link.
+        if ( ! $is_update ) {
+            $rate_key = 'dcs_sess_conf_' . $event_id . '_' . md5( strtolower( $email ) );
+            if ( get_transient( $rate_key ) ) return;
+            set_transient( $rate_key, 1, 60 );
+        }
+
+        $slots  = get_post_meta( $event_id, '_meeting_slots', true );
+        $groups = dcs_group_slots_by_part( dcs_get_parts( $event_id ), is_array( $slots ) ? $slots : [] );
+        $keys   = array_map( 'dcs_slot_key', $chosen );
+
+        $lines = [];
+        foreach ( $groups as $gi => $g ) {
+            $pick = null;
+            foreach ( $g['slots'] as $sl ) {
+                if ( in_array( dcs_slot_key( $sl ), $keys, true ) ) { $pick = $sl; break; }
+            }
+            $when   = $pick ? dcs_slot_range( $pick ) : __( 'not attending', 'doodle-clone-scheduler' );
+            $lines[] = count( $groups ) > 1 ? '- ' . dcs_part_label( $g, $gi ) . ': ' . $when : '- ' . $when;
+        }
+
+        $token = dcs_make_edit_token( $event_id, $email );
+        $link  = add_query_arg( 'dcs_token', rawurlencode( $token ), get_permalink( $event_id ) );
+
+        $subject = $is_update
+            ? sprintf( __( 'Your sessions for "%s" have been updated', 'doodle-clone-scheduler' ), $title )
+            : sprintf( __( 'You\'re registered: %s', 'doodle-clone-scheduler' ), $title );
+        $body = sprintf(
+            "Hi %s,\n\n%s\n\n%s\n\n%s\n\n%s\n%s\n\n— %s",
+            $name,
+            $is_update
+                ? sprintf( __( 'Your sessions for "%s" have been updated. Your schedule:', 'doodle-clone-scheduler' ), $title )
+                : sprintf( __( 'You\'re registered for "%s". Your schedule:', 'doodle-clone-scheduler' ), $title ),
+            implode( "\n", $lines ),
+            __( 'Meeting details (location or how to join) will be emailed to you once registration closes.', 'doodle-clone-scheduler' ),
+            __( 'Need to change your sessions? Use this link (valid for 30 days):', 'doodle-clone-scheduler' ),
+            $link,
+            get_bloginfo( 'name' )
+        );
+
+        wp_mail( $email, $subject, $body, self::plain_headers() );
+    }
+
+    /**
      * Back-compat alias: the poll announcement is now the poll flavour of
      * send_final_details().
      */
@@ -138,7 +194,9 @@ class DCS_Mailer {
 
         $title     = wp_strip_all_tags( html_entity_decode( get_the_title( $post_id ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
         $permalink = get_permalink( $post_id );
-        $is_poll   = in_array( get_post_meta( $post_id, '_meeting_mode', true ), [ 'poll', 'group' ], true );
+        $mode_meta = (string) get_post_meta( $post_id, '_meeting_mode', true );
+        $is_poll   = in_array( $mode_meta, [ 'poll', 'group' ], true );
+        $sessions  = dcs_is_sessions_mode( $mode_meta );
         $headers   = [ 'Content-Type: text/html; charset=UTF-8' ];
 
         $sent_hashes   = (array) get_post_meta( $post_id, '_poll_announce_recipient_hashes', true );
@@ -168,11 +226,18 @@ class DCS_Mailer {
                 }
                 if ( $ics_cache[ $key ] ) $attachments[] = $ics_cache[ $key ];
 
-                $blocks .= self::slot_block_html( $range, $details, dcs_google_calendar_url( $post, $start, $end, $details ) );
+                $blocks .= self::slot_block_html( $range, $details, dcs_google_calendar_url( $post, $start, $end, $details ), dcs_slot_part_title( $post_id, $slot ) );
             }
             if ( $blocks === '' ) continue;
 
-            if ( $is_poll ) {
+            if ( $sessions ) {
+                $subject = sprintf( __( 'Your schedule: %s', 'doodle-clone-scheduler' ), $title );
+                $intro   = sprintf(
+                    /* translators: %s: event title */
+                    __( 'Registration for %s is closed. Here is your schedule with the details for each session:', 'doodle-clone-scheduler' ),
+                    '<strong>' . esc_html( $title ) . '</strong>'
+                );
+            } elseif ( $is_poll ) {
                 $subject = sprintf( __( '%1$s scheduled for %2$s', 'doodle-clone-scheduler' ), $title, $first_range );
                 $intro   = sprintf(
                     /* translators: %s: event title */
@@ -288,11 +353,15 @@ class DCS_Mailer {
         return ( is_array( $snap ) && ! empty( $snap['start'] ) ) ? $snap : null;
     }
 
-    /** HTML block for one slot: time, details, optional calendar link. All values escaped. */
-    private static function slot_block_html( string $range, array $d, string $google_url ): string {
+    /**
+     * HTML block for one slot: optional part heading, time, details, optional
+     * calendar link. All values escaped.
+     */
+    private static function slot_block_html( string $range, array $d, string $google_url, string $heading = '' ): string {
         $formats = dcs_meeting_formats();
         $format  = $d['format'] ?? 'unspecified';
         $rows    = [];
+        $html    = $heading !== '' ? '<h3 style="margin:18px 0 6px;">' . esc_html( $heading ) . '</h3>' : '';
 
         $rows[] = [ __( 'When', 'doodle-clone-scheduler' ), '<strong>' . esc_html( $range ) . '</strong>' ];
         if ( $format !== 'unspecified' && isset( $formats[ $format ] ) ) {
@@ -317,7 +386,7 @@ class DCS_Mailer {
             $rows[] = [ __( 'Notes', 'doodle-clone-scheduler' ), nl2br( esc_html( $d['notes'] ) ) ];
         }
 
-        $html = '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;border:1px solid #dcdcde;margin:0 0 12px;">';
+        $html .= '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;border:1px solid #dcdcde;margin:0 0 12px;">';
         foreach ( $rows as [ $label, $value ] ) {
             $html .= '<tr><th align="left" valign="top" style="border-bottom:1px solid #f0f0f1;padding-right:14px;white-space:nowrap;">'
                 . esc_html( $label ) . '</th><td valign="top" style="border-bottom:1px solid #f0f0f1;">' . $value . '</td></tr>';
@@ -353,7 +422,7 @@ class DCS_Mailer {
         foreach ( $by_slot as $entry ) {
             [ $start, $end ] = dcs_slot_times( $entry['slot'] );
             $details = dcs_slot_details( $post_id, $entry['slot'] );
-            $body   .= self::slot_block_html( dcs_format_range( $start, $end ), $details, '' );
+            $body   .= self::slot_block_html( dcs_format_range( $start, $end ), $details, '', dcs_slot_part_title( $post_id, $entry['slot'] ) );
             $body   .= '<p style="margin:0 0 20px;"><em>' . esc_html__( 'Attendees:', 'doodle-clone-scheduler' ) . '</em><br>'
                 . implode( '<br>', array_map( 'esc_html', $entry['people'] ) ) . '</p>';
         }
