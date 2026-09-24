@@ -344,9 +344,25 @@ function dcs_get_meeting_details( int $post_id ): array {
 }
 
 /**
+ * The join-info fields that belong to one specific online meeting. They're
+ * only meaningful together — a Teams link with the default's Zoom meeting ID
+ * and passcode would be wrong — so they are overridden as a group.
+ */
+function dcs_meeting_online_fields(): array {
+    return [ 'url', 'meeting_id', 'passcode', 'dial_in' ];
+}
+
+/**
  * Returns the effective details for one slot: the slot's own override
- * fields layered over the event-wide default. Blank override fields (and an
- * override format of '') fall through to the default.
+ * layered over the event-wide default.
+ *
+ *  - A slot that sets its own meeting link is a different meeting (e.g.
+ *    Teams instead of the default Zoom): link, meeting ID, passcode and
+ *    dial-in all come from the slot, and any it leaves blank stay blank.
+ *  - A slot with no link of its own keeps the default's meeting and may
+ *    override individual join fields (e.g. just a different passcode).
+ *  - Format, location and notes always fall through field by field; an
+ *    override format of '' means "use the default".
  */
 function dcs_slot_details( int $post_id, array $slot ): array {
     $all      = dcs_get_meeting_details( $post_id );
@@ -357,8 +373,14 @@ function dcs_slot_details( int $post_id, array $slot ): array {
     if ( is_array( $override ) ) {
         $override = dcs_sanitize_meeting_details( $override, true );
         if ( $override['format'] !== '' ) $out['format'] = $override['format'];
+
+        $own_meeting = $override['url'] !== '';
         foreach ( dcs_meeting_detail_fields() as $f ) {
-            if ( $override[ $f ] !== '' ) $out[ $f ] = $override[ $f ];
+            if ( $own_meeting && in_array( $f, dcs_meeting_online_fields(), true ) ) {
+                $out[ $f ] = $override[ $f ];
+            } elseif ( $override[ $f ] !== '' ) {
+                $out[ $f ] = $override[ $f ];
+            }
         }
     }
     return $out;

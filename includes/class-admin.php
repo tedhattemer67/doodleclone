@@ -160,7 +160,7 @@ class DCS_Admin {
         $open = $values && dcs_meeting_details_has_content( $values );
         echo '<details class="dcs-slot-override"' . ( $open ? ' open' : '' ) . ' style="margin:8px 0;">';
         echo '<summary>' . esc_html__( 'Override meeting details for this slot', 'doodle-clone-scheduler' ) . '</summary>';
-        echo '<p class="description">' . esc_html__( 'Leave a field blank to use the event default from the Meeting Details box.', 'doodle-clone-scheduler' ) . '</p>';
+        echo '<p class="description">' . esc_html__( 'Leave a field blank to use the event default from the Meeting Details box. Entering a meeting link here makes this slot a separate meeting: its meeting ID, passcode and dial-in are then taken only from this slot, never from the default.', 'doodle-clone-scheduler' ) . '</p>';
         self::render_details_fields( $name_prefix, $values, true );
         echo '</details>';
     }

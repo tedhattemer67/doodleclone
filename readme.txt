@@ -60,8 +60,11 @@ removing the plugin.
 * New **Meeting Details** box: format (in person / online / hybrid),
   address or room, meeting link (https only), meeting ID, passcode, dial-in
   numbers and notes. Set once for the event; any slot can override
-  individual fields. Stored separately from slot data (`_meeting_details`)
-  and never rendered on the public page or returned by the booking endpoint.
+  individual fields. A slot with its own meeting link is treated as a
+  separate meeting — its meeting ID, passcode and dial-in never fall back to
+  the event default (no Zoom passcode on a Teams slot). Stored separately
+  from slot data (`_meeting_details`) and never rendered on the public page
+  or returned by the booking endpoint.
 * 1-on-1 events can now be closed: closing stops new sign-ups (the public
   page shows "Registration is closed") and can be reopened.
 * **Send final details** (replaces "Send announcement"), for both types:
