@@ -410,36 +410,81 @@ function dcs_meeting_details_summary( array $d ): string {
 }
 
 /**
- * Plain-text rendering of a details record, used for the ICS DESCRIPTION
- * and the Google Calendar "details" field. Contains the join link and
- * passcode, so it must only ever go into mail — never onto a public page.
+ * Splits a details record into display sections — where, how to join,
+ * dial-in, notes — each a list of plain-text lines. Sections are separated
+ * by a blank line when rendered so a calendar description stays readable.
+ * Contains the join link and passcode: mail/calendar use only, never a
+ * public page.
  */
-function dcs_meeting_details_plaintext( array $d ): string {
-    $formats = dcs_meeting_formats();
-    $format  = $d['format'] ?? 'unspecified';
-    $lines   = [];
+function dcs_meeting_details_sections( array $d ): array {
+    $formats  = dcs_meeting_formats();
+    $format   = $d['format'] ?? 'unspecified';
+    $sections = [];
 
+    $where = [];
     if ( $format !== 'unspecified' && isset( $formats[ $format ] ) ) {
-        $lines[] = __( 'Format:', 'doodle-clone-scheduler' ) . ' ' . $formats[ $format ];
+        $where[] = __( 'Format:', 'doodle-clone-scheduler' ) . ' ' . $formats[ $format ];
     }
+    if ( ( $d['location'] ?? '' ) !== '' ) {
+        $where[] = __( 'Location:', 'doodle-clone-scheduler' ) . ' ' . $d['location'];
+    }
+    if ( $where ) $sections[] = $where;
+
+    $join   = [];
     $labels = [
-        'location'   => __( 'Location:', 'doodle-clone-scheduler' ),
-        'url'        => __( 'Join link:', 'doodle-clone-scheduler' ),
+        'url'        => __( 'Join online:', 'doodle-clone-scheduler' ),
         'meeting_id' => __( 'Meeting ID:', 'doodle-clone-scheduler' ),
         'passcode'   => __( 'Passcode:', 'doodle-clone-scheduler' ),
     ];
     foreach ( $labels as $f => $label ) {
-        if ( ( $d[ $f ] ?? '' ) !== '' ) $lines[] = $label . ' ' . $d[ $f ];
+        if ( ( $d[ $f ] ?? '' ) !== '' ) $join[] = $label . ' ' . $d[ $f ];
     }
+    if ( $join ) $sections[] = $join;
+
     if ( ( $d['dial_in'] ?? '' ) !== '' ) {
-        $lines[] = __( 'Dial-in:', 'doodle-clone-scheduler' );
-        $lines[] = $d['dial_in'];
+        $sections[] = array_merge(
+            [ __( 'Dial-in:', 'doodle-clone-scheduler' ) ],
+            preg_split( '/\R/', $d['dial_in'] )
+        );
     }
     if ( ( $d['notes'] ?? '' ) !== '' ) {
-        $lines[] = '';
-        $lines[] = $d['notes'];
+        $sections[] = preg_split( '/\R/', $d['notes'] );
     }
-    return implode( "\n", $lines );
+    return $sections;
+}
+
+/**
+ * Plain-text calendar description: details sections separated by blank
+ * lines, then the event page link. Used for the ICS DESCRIPTION.
+ */
+function dcs_meeting_details_plaintext( array $d, string $event_url = '' ): string {
+    $blocks = array_map( fn( $lines ) => implode( "\n", $lines ), dcs_meeting_details_sections( $d ) );
+    if ( $event_url !== '' ) $blocks[] = __( 'Event page:', 'doodle-clone-scheduler' ) . ' ' . $event_url;
+    return implode( "\n\n", $blocks );
+}
+
+/**
+ * HTML calendar description. Google Calendar treats an event description
+ * as basic HTML, so plain newlines collapse into one run-on line — lines
+ * must be joined with <br>. Every value is escaped; links are made clickable.
+ */
+function dcs_meeting_details_html( array $d, string $event_url = '' ): string {
+    $link = function ( string $line ): string {
+        $safe = esc_html( $line );
+        return preg_replace_callback(
+            '#https://[^\s<>"]+#',
+            fn( $m ) => '<a href="' . $m[0] . '">' . $m[0] . '</a>',
+            $safe
+        );
+    };
+    $blocks = [];
+    foreach ( dcs_meeting_details_sections( $d ) as $lines ) {
+        $blocks[] = implode( '<br>', array_map( $link, $lines ) );
+    }
+    if ( $event_url !== '' ) {
+        $blocks[] = $link( __( 'Event page:', 'doodle-clone-scheduler' ) . ' ' . $event_url );
+    }
+    return implode( '<br><br>', $blocks );
 }
 
 // ---------------------------------------------------------------------------
@@ -497,9 +542,9 @@ function dcs_build_ics( WP_Post $post, int $start_ts, int $end_ts, string $slot_
     $dtend    = ( new DateTimeImmutable( '@' . max( $end_ts, $start_ts ) ) )->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
     $summary  = html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 
-    $desc = get_permalink( $post );
-    $info = $details ? dcs_meeting_details_plaintext( $details ) : '';
-    if ( $info !== '' ) $desc = $info . "\n\n" . $desc;
+    // An all-blank record (event with no details set) keeps the old output.
+    if ( $details && ! dcs_meeting_details_has_content( $details ) ) $details = [];
+    $desc = $details ? dcs_meeting_details_plaintext( $details, get_permalink( $post ) ) : get_permalink( $post );
 
     $lines = [
         'BEGIN:VCALENDAR',
@@ -516,6 +561,14 @@ function dcs_build_ics( WP_Post $post, int $start_ts, int $end_ts, string $slot_
         'SUMMARY:'     . dcs_ics_escape( $summary ),
         'DESCRIPTION:' . dcs_ics_escape( $desc ),
     ];
+
+    // HTML twin of DESCRIPTION for clients that render descriptions as HTML
+    // (Outlook reads X-ALT-DESC); plain-text clients keep DESCRIPTION.
+    if ( $details ) {
+        $lines[] = 'X-ALT-DESC;FMTTYPE=text/html:' . dcs_ics_escape(
+            '<html><body>' . dcs_meeting_details_html( $details, get_permalink( $post ) ) . '</body></html>'
+        );
+    }
 
     $format   = $details['format'] ?? 'unspecified';
     $location = '';
@@ -553,10 +606,10 @@ function dcs_build_ics( WP_Post $post, int $start_ts, int $end_ts, string $slot_
  */
 function dcs_google_calendar_url( WP_Post $post, int $start_ts, int $end_ts, array $details = [] ): string {
     $title   = rawurlencode( html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
-    $text    = get_permalink( $post );
-    $info    = $details ? dcs_meeting_details_plaintext( $details ) : '';
-    if ( $info !== '' ) $text = $info . "\n\n" . $text;
-    $s       = ( new DateTimeImmutable( '@' . $start_ts ) )->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
+    // Google renders "details" as basic HTML — plain newlines would collapse.
+    if ( $details && ! dcs_meeting_details_has_content( $details ) ) $details = [];
+    $text    =$details ? dcs_meeting_details_html( $details, get_permalink( $post ) ) : get_permalink( $post );
+    $s       =( new DateTimeImmutable( '@' . $start_ts ) )->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
     $e       = ( new DateTimeImmutable( '@' . $end_ts ) )  ->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Ymd\THis\Z' );
     $url     = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' . $title . '&dates=' . $s . '/' . $e . '&details=' . rawurlencode( $text );
 
