@@ -431,19 +431,24 @@ function dcs_ics_escape( string $text ): string {
 }
 
 /**
- * Folds a content line to RFC 5545's 75-octet limit. Splits on UTF-8
- * character boundaries (mb_strcut) so a multi-byte character is never cut.
+ * Folds a content line to RFC 5545's 75-octet limit. Splits only on UTF-8
+ * character boundaries so a multi-byte character is never cut in half.
+ * Done by hand rather than with mb_strcut(): mbstring isn't guaranteed.
  */
 function dcs_ics_fold( string $line ): string {
     if ( strlen( $line ) <= 75 ) return $line;
     $out   = [];
     $first = true;
     while ( $line !== '' ) {
-        $max   = $first ? 75 : 74; // continuation lines start with a space
-        $chunk = function_exists( 'mb_strcut' ) ? mb_strcut( $line, 0, $max, 'UTF-8' ) : substr( $line, 0, $max );
-        if ( $chunk === '' ) break;
-        $out[] = ( $first ? '' : ' ' ) . $chunk;
-        $line  = substr( $line, strlen( $chunk ) );
+        $max = $first ? 75 : 74; // continuation lines start with a space
+        $cut = min( $max, strlen( $line ) );
+        // Back off while the byte at the cut is a UTF-8 continuation byte (10xxxxxx).
+        while ( $cut > 0 && $cut < strlen( $line ) && ( ord( $line[ $cut ] ) & 0xC0 ) === 0x80 ) {
+            $cut--;
+        }
+        if ( $cut === 0 ) break;
+        $out[] = ( $first ? '' : ' ' ) . substr( $line, 0, $cut );
+        $line  = substr( $line, $cut );
         $first = false;
     }
     return implode( "\r\n", $out );
