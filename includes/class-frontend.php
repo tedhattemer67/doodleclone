@@ -3,6 +3,11 @@
  * DCS Frontend
  * Injects the booking/poll form into meeting event single posts.
  * Handles magic edit-link token resolution.
+ *
+ * Security: nothing in this file may read _meeting_details or call
+ * dcs_slot_details() / dcs_meeting_details_plaintext(). Join links,
+ * passcodes and dial-in numbers are only ever emailed (DCS_Mailer), never
+ * rendered on the public page — anyone with the event URL can see it.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
@@ -50,11 +55,20 @@ class DCS_Frontend {
         }
 
         $is_poll   = in_array( $mode, [ 'poll', 'group' ], true );
-        $is_closed = $is_poll && ( get_post_meta( $post_id, '_poll_status', true ) === 'closed' );
+        $is_closed = dcs_event_is_closed( $post_id );
 
         // Closed poll — show notice and winning time if selected
-        if ( $is_closed ) {
+        if ( $is_closed && $is_poll ) {
             return self::render_closed_notice( $post_id ) . $content;
+        }
+
+        // Closed 1-on-1 registration — no form
+        if ( $is_closed ) {
+            return $content
+                . '<div class="dcs-registration-closed" style="padding:16px 18px;border:1px solid #ccd0d4;background:#f6f7f7;border-radius:6px;margin:12px 0;">'
+                . '<p style="margin:0;"><strong>' . esc_html__( 'Registration for this event is closed.', 'doodle-clone-scheduler' ) . '</strong> '
+                . esc_html__( 'If you registered, your final meeting details have been or will be sent to you by email.', 'doodle-clone-scheduler' )
+                . '</p></div>';
         }
 
         // Check for an expired token on an open poll — show a clear message rather

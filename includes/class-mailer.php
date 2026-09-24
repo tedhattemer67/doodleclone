@@ -20,15 +20,20 @@ class DCS_Mailer {
 
         $subject = sprintf( __( 'Your meeting is confirmed: %s', 'doodle-clone-scheduler' ), $title );
         $body    = sprintf(
-            "Hi %s,\n\nYou're confirmed for \"%s\".\nTime: %s\n\n— %s",
+            "Hi %s,\n\nYou're confirmed for \"%s\".\nTime: %s\n\n%s\n\n— %s",
             $name,
             $title,
             dcs_format_range( $start_ts, $end_ts ),
+            __( 'Meeting details (location or how to join) will be sent to you before the meeting.', 'doodle-clone-scheduler' ),
             get_bloginfo( 'name' )
         );
 
+        // Deliberately no meeting details here: join links and passcodes go
+        // out only in the final-details email once registration is closed.
+        // Same UID as the final-details ICS, which carries a higher SEQUENCE,
+        // so importing that one updates this calendar entry in place.
         $headers  = self::plain_headers();
-        $ics_path = ( $start_ts && $post ) ? dcs_build_ics( $post, $start_ts, $end_ts ) : '';
+        $ics_path = ( $start_ts && $post ) ? dcs_build_ics( $post, $start_ts, $end_ts, dcs_slot_key( $slot ) ) : '';
 
         wp_mail( $email, $subject, $body, $headers, $ics_path ? [ $ics_path ] : [] );
 
@@ -96,66 +101,108 @@ class DCS_Mailer {
     }
 
     /**
-     * Sends the poll announcement to all voters once the admin closes the poll
-     * and selects a winning time slot.
-     *
-     * @param int    $post_id   The meeting event post ID.
-     * @param string $mode      'all' to send to everyone, 'new' to skip previously emailed voters.
-     * @return int              Number of emails successfully sent.
+     * Back-compat alias: the poll announcement is now the poll flavour of
+     * send_final_details().
      */
     public static function send_poll_announcement( int $post_id, string $mode = 'all' ): int {
-        $snap = get_post_meta( $post_id, '_poll_selected_slot_snapshot', true );
-        if ( ! is_array( $snap ) || empty( $snap['start'] ) ) return 0;
+        return self::send_final_details( $post_id, $mode );
+    }
 
-        $start_ts = intval( $snap['start'] );
-        $end_ts   = isset( $snap['end'] ) ? intval( $snap['end'] ) : 0;
+    /**
+     * Sends the final-details email once the organiser has closed the event.
+     *
+     *  - Group poll: every voter gets the chosen slot.
+     *  - 1-on-1:     each attendee gets the slot(s) they are booked into.
+     *
+     * Each email carries the slot's time, meeting details (location / join
+     * link / meeting ID / passcode / dial-in / notes), a Google Calendar link
+     * and an .ics per slot. Details are read live at send time, so edits made
+     * after closing go out on the next re-send.
+     *
+     * @param int    $post_id  The meeting event post ID.
+     * @param string $mode     'all' to send to everyone, 'new' to skip anyone
+     *                         already emailed by a previous send.
+     * @return int             Number of emails successfully sent.
+     */
+    public static function send_final_details( int $post_id, string $mode = 'all' ): int {
+        $post = get_post( $post_id );
+        if ( ! $post ) return 0;
 
-        // Recompute from stored ET labels to avoid server-timezone drift
-        if ( ! empty( $snap['date'] ) && ! empty( $snap['time'] ) ) {
-            $recomputed = dcs_epoch_from_local( $snap['date'], $snap['time'] );
-            if ( $recomputed ) {
-                $start_ts = $recomputed;
-                if ( ! empty( $snap['duration_minutes'] ) ) {
-                    $end_ts = $start_ts + intval( $snap['duration_minutes'] ) * 60;
-                }
-            }
-        }
-        if ( ! $end_ts ) $end_ts = $start_ts; // fallback — no blank DTEnd in ICS
+        $recipients = self::final_details_recipients( $post_id );
+        if ( empty( $recipients ) ) return 0;
 
-        $post      = get_post( $post_id );
-        $title_raw = get_the_title( $post_id );
-        $title     = wp_strip_all_tags( html_entity_decode( $title_raw, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+        // One SEQUENCE per send: every .ics from this send supersedes the
+        // signup .ics (SEQUENCE 0) and any earlier send for the same slot.
+        $sequence = intval( get_post_meta( $post_id, '_dcs_final_sequence', true ) ) + 1;
+        update_post_meta( $post_id, '_dcs_final_sequence', $sequence );
+
+        $title     = wp_strip_all_tags( html_entity_decode( get_the_title( $post_id ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
         $permalink = get_permalink( $post_id );
-        $google    = dcs_google_calendar_url( $post, $start_ts, $end_ts );
-        $ics_path  = dcs_build_ics( $post, $start_ts, $end_ts );
-        $range     = dcs_format_range( $start_ts, $end_ts );
+        $is_poll   = in_array( get_post_meta( $post_id, '_meeting_mode', true ), [ 'poll', 'group' ], true );
+        $headers   = [ 'Content-Type: text/html; charset=UTF-8' ];
 
-        $subject = sprintf( '%s scheduled for %s', $title, $range );
-        $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
+        $sent_hashes   = (array) get_post_meta( $post_id, '_poll_announce_recipient_hashes', true );
+        $sent_hash_map = array_fill_keys( $sent_hashes, true );
 
-        $all_recipients  = dcs_collect_voter_emails( $post_id );
-        $sent_hashes     = (array) get_post_meta( $post_id, '_poll_announce_recipient_hashes', true );
-        $sent_hash_map   = array_fill_keys( $sent_hashes, true );
-
+        $ics_cache  = []; // slot key => temp .ics path, built once per slot
         $sent_count = 0;
-        foreach ( $all_recipients as $em ) {
-            $norm = dcs_normalize_email( $em );
-            if ( ! $norm ) continue;
+        $sent_to    = [];
+
+        foreach ( $recipients as $norm => $r ) {
             $hash = hash( 'sha256', $norm );
             if ( $mode === 'new' && isset( $sent_hash_map[ $hash ] ) ) continue;
 
-            $body = '<p>Hello,</p>'
-                . '<p><strong>' . esc_html( $title ) . '</strong> has been scheduled for <strong>'
-                . esc_html( $range ) . '</strong>.</p>'
-                . '<p>'
-                . '<a href="' . esc_url( $google ) . '">Add to Google Calendar</a> &middot; '
-                . '<a href="' . esc_url( $permalink ) . '">View details</a>'
-                . '</p>';
+            $attachments = [];
+            $blocks      = '';
+            $first_range = '';
+            foreach ( $r['slots'] as $slot ) {
+                [ $start, $end ] = dcs_slot_times( $slot );
+                if ( ! $start ) continue;
+                $key     = dcs_slot_key( $slot );
+                $details = dcs_slot_details( $post_id, $slot );
+                $range   = dcs_format_range( $start, $end );
+                if ( $first_range === '' ) $first_range = $range;
 
-            $ok = wp_mail( $norm, $subject, $body, $headers, $ics_path ? [ $ics_path ] : [] );
+                if ( ! isset( $ics_cache[ $key ] ) ) {
+                    $ics_cache[ $key ] = dcs_build_ics( $post, $start, $end, $key, $details, $sequence );
+                }
+                if ( $ics_cache[ $key ] ) $attachments[] = $ics_cache[ $key ];
+
+                $blocks .= self::slot_block_html( $range, $details, dcs_google_calendar_url( $post, $start, $end, $details ) );
+            }
+            if ( $blocks === '' ) continue;
+
+            if ( $is_poll ) {
+                $subject = sprintf( __( '%1$s scheduled for %2$s', 'doodle-clone-scheduler' ), $title, $first_range );
+                $intro   = sprintf(
+                    /* translators: %s: event title */
+                    __( '%s has been scheduled. Here are the details:', 'doodle-clone-scheduler' ),
+                    '<strong>' . esc_html( $title ) . '</strong>'
+                );
+            } else {
+                $subject = sprintf( __( 'Meeting details: %s', 'doodle-clone-scheduler' ), $title );
+                $intro   = sprintf(
+                    /* translators: %s: event title */
+                    __( 'Here are the final details for %s:', 'doodle-clone-scheduler' ),
+                    '<strong>' . esc_html( $title ) . '</strong>'
+                );
+            }
+
+            $greeting = $r['name'] !== ''
+                ? sprintf( __( 'Hi %s,', 'doodle-clone-scheduler' ), esc_html( $r['name'] ) )
+                : esc_html__( 'Hello,', 'doodle-clone-scheduler' );
+
+            $body = '<p>' . $greeting . '</p>'
+                . '<p>' . $intro . '</p>'
+                . $blocks
+                . '<p><a href="' . esc_url( $permalink ) . '">' . esc_html__( 'View event page', 'doodle-clone-scheduler' ) . '</a></p>'
+                . '<p>— ' . esc_html( get_bloginfo( 'name' ) ) . '</p>';
+
+            $ok = wp_mail( $norm, $subject, $body, $headers, $attachments );
             if ( $ok ) {
                 $sent_count++;
                 $sent_hash_map[ $hash ] = true;
+                $sent_to[] = $norm;
             }
         }
 
@@ -163,8 +210,12 @@ class DCS_Mailer {
         update_post_meta( $post_id, '_poll_announce_count', $sent_count );
         update_post_meta( $post_id, '_poll_announce_recipient_hashes', array_keys( $sent_hash_map ) );
 
-        if ( $ics_path && file_exists( $ics_path ) ) {
-            @unlink( $ics_path );
+        foreach ( $ics_cache as $path ) {
+            if ( $path && file_exists( $path ) ) @unlink( $path );
+        }
+
+        if ( $sent_count > 0 ) {
+            self::send_final_details_admin_summary( $post_id, $title, $recipients, $sent_to );
         }
 
         return $sent_count;
@@ -173,6 +224,147 @@ class DCS_Mailer {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Returns [ normalised email => [ 'name' => string, 'slots' => slot[] ] ]
+     * for everyone who should get the final-details email.
+     */
+    private static function final_details_recipients( int $post_id ): array {
+        $slots = get_post_meta( $post_id, '_meeting_slots', true );
+        if ( ! is_array( $slots ) ) return [];
+
+        $mode = get_post_meta( $post_id, '_meeting_mode', true ) ?: 'booking';
+        $out  = [];
+
+        if ( in_array( $mode, [ 'poll', 'group' ], true ) ) {
+            $winner = self::poll_winner_slot( $post_id, $slots );
+            if ( ! $winner ) return [];
+            // Every voter is told the final time, whether or not they voted for it.
+            foreach ( $slots as $slot ) {
+                foreach ( (array) ( $slot['attendees'] ?? [] ) as $a ) {
+                    $norm = dcs_normalize_email( is_array( $a ) ? ( $a['email'] ?? '' ) : (string) $a );
+                    if ( ! $norm ) continue;
+                    if ( ! isset( $out[ $norm ] ) ) $out[ $norm ] = [ 'name' => '', 'slots' => [ $winner ] ];
+                    if ( $out[ $norm ]['name'] === '' && is_array( $a ) && ! empty( $a['name'] ) ) {
+                        $out[ $norm ]['name'] = $a['name'];
+                    }
+                }
+            }
+            return $out;
+        }
+
+        // 1-on-1: each attendee gets their own slot(s). Normally one, but an
+        // admin can hand-enter the same person into several.
+        foreach ( $slots as $slot ) {
+            foreach ( (array) ( $slot['attendees'] ?? [] ) as $a ) {
+                if ( ! is_array( $a ) ) continue;
+                $norm = dcs_normalize_email( $a['email'] ?? '' );
+                if ( ! $norm ) continue;
+                if ( ! isset( $out[ $norm ] ) ) $out[ $norm ] = [ 'name' => '', 'slots' => [] ];
+                if ( $out[ $norm ]['name'] === '' && ! empty( $a['name'] ) ) $out[ $norm ]['name'] = $a['name'];
+                $out[ $norm ]['slots'][] = $slot;
+            }
+        }
+        foreach ( $out as &$r ) {
+            usort( $r['slots'], fn( $x, $y ) => intval( $x['start'] ?? 0 ) <=> intval( $y['start'] ?? 0 ) );
+        }
+        unset( $r );
+        return $out;
+    }
+
+    /**
+     * Resolves the chosen poll slot from the live slot list (so details and
+     * time edits made after closing are honoured), falling back to the
+     * snapshot taken at close time if the slot has since been removed.
+     */
+    private static function poll_winner_slot( int $post_id, array $slots ): ?array {
+        $id = (string) get_post_meta( $post_id, '_poll_selected_slot_id', true );
+        if ( $id !== '' ) {
+            foreach ( $slots as $slot ) {
+                if ( dcs_slot_key( $slot ) === $id ) return $slot;
+            }
+        }
+        $snap = get_post_meta( $post_id, '_poll_selected_slot_snapshot', true );
+        return ( is_array( $snap ) && ! empty( $snap['start'] ) ) ? $snap : null;
+    }
+
+    /** HTML block for one slot: time, details, optional calendar link. All values escaped. */
+    private static function slot_block_html( string $range, array $d, string $google_url ): string {
+        $formats = dcs_meeting_formats();
+        $format  = $d['format'] ?? 'unspecified';
+        $rows    = [];
+
+        $rows[] = [ __( 'When', 'doodle-clone-scheduler' ), '<strong>' . esc_html( $range ) . '</strong>' ];
+        if ( $format !== 'unspecified' && isset( $formats[ $format ] ) ) {
+            $rows[] = [ __( 'Format', 'doodle-clone-scheduler' ), esc_html( $formats[ $format ] ) ];
+        }
+        if ( ( $d['location'] ?? '' ) !== '' ) {
+            $rows[] = [ __( 'Location', 'doodle-clone-scheduler' ), esc_html( $d['location'] ) ];
+        }
+        if ( ( $d['url'] ?? '' ) !== '' ) {
+            $rows[] = [ __( 'Join online', 'doodle-clone-scheduler' ), '<a href="' . esc_url( $d['url'] ) . '">' . esc_html( $d['url'] ) . '</a>' ];
+        }
+        if ( ( $d['meeting_id'] ?? '' ) !== '' ) {
+            $rows[] = [ __( 'Meeting ID', 'doodle-clone-scheduler' ), esc_html( $d['meeting_id'] ) ];
+        }
+        if ( ( $d['passcode'] ?? '' ) !== '' ) {
+            $rows[] = [ __( 'Passcode', 'doodle-clone-scheduler' ), esc_html( $d['passcode'] ) ];
+        }
+        if ( ( $d['dial_in'] ?? '' ) !== '' ) {
+            $rows[] = [ __( 'Dial-in', 'doodle-clone-scheduler' ), nl2br( esc_html( $d['dial_in'] ) ) ];
+        }
+        if ( ( $d['notes'] ?? '' ) !== '' ) {
+            $rows[] = [ __( 'Notes', 'doodle-clone-scheduler' ), nl2br( esc_html( $d['notes'] ) ) ];
+        }
+
+        $html = '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;border:1px solid #dcdcde;margin:0 0 12px;">';
+        foreach ( $rows as [ $label, $value ] ) {
+            $html .= '<tr><th align="left" valign="top" style="border-bottom:1px solid #f0f0f1;padding-right:14px;white-space:nowrap;">'
+                . esc_html( $label ) . '</th><td valign="top" style="border-bottom:1px solid #f0f0f1;">' . $value . '</td></tr>';
+        }
+        $html .= '</table>';
+        if ( $google_url !== '' ) {
+            $html .= '<p style="margin:0 0 18px;"><a href="' . esc_url( $google_url ) . '">'
+                . esc_html__( 'Add to Google Calendar', 'doodle-clone-scheduler' ) . '</a></p>';
+        }
+        return $html;
+    }
+
+    /** One summary email to the site admin per send: each slot, its details, who was emailed. */
+    private static function send_final_details_admin_summary( int $post_id, string $title, array $recipients, array $sent_to ): void {
+        $by_slot = [];
+        foreach ( $recipients as $norm => $r ) {
+            foreach ( $r['slots'] as $slot ) {
+                $key = dcs_slot_key( $slot );
+                if ( ! isset( $by_slot[ $key ] ) ) $by_slot[ $key ] = [ 'slot' => $slot, 'people' => [] ];
+                $label = ( $r['name'] !== '' ? $r['name'] . ' ' : '' ) . '<' . $norm . '>';
+                if ( in_array( $norm, $sent_to, true ) ) $label .= ' ' . __( '(emailed now)', 'doodle-clone-scheduler' );
+                $by_slot[ $key ]['people'][] = $label;
+            }
+        }
+
+        $body = '<p>' . sprintf(
+            /* translators: 1: number of emails, 2: event title */
+            esc_html__( 'Final details were sent to %1$d recipient(s) for %2$s.', 'doodle-clone-scheduler' ),
+            count( $sent_to ),
+            '<strong>' . esc_html( $title ) . '</strong>'
+        ) . '</p>';
+
+        foreach ( $by_slot as $entry ) {
+            [ $start, $end ] = dcs_slot_times( $entry['slot'] );
+            $details = dcs_slot_details( $post_id, $entry['slot'] );
+            $body   .= self::slot_block_html( dcs_format_range( $start, $end ), $details, '' );
+            $body   .= '<p style="margin:0 0 20px;"><em>' . esc_html__( 'Attendees:', 'doodle-clone-scheduler' ) . '</em><br>'
+                . implode( '<br>', array_map( 'esc_html', $entry['people'] ) ) . '</p>';
+        }
+
+        wp_mail(
+            get_option( 'admin_email' ),
+            sprintf( __( 'Final details sent: %s', 'doodle-clone-scheduler' ), $title ),
+            $body,
+            [ 'Content-Type: text/html; charset=UTF-8' ]
+        );
+    }
 
     private static function plain_headers(): array {
         return [ 'Content-Type: text/plain; charset=UTF-8' ];

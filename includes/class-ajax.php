@@ -67,12 +67,12 @@ class DCS_Ajax {
 
         $mode = get_post_meta( $event_id, '_meeting_mode', true ) ?: 'booking';
 
-        // Block submissions to closed polls
-        if ( in_array( $mode, [ 'poll', 'group' ], true ) ) {
-            $status = get_post_meta( $event_id, '_poll_status', true ) ?: 'open';
-            if ( $status === 'closed' ) {
-                wp_send_json_error( __( 'This poll is no longer accepting responses.', 'doodle-clone-scheduler' ) );
-            }
+        // Block submissions once the organiser has closed the event (poll
+        // closed on a final time, or 1-on-1 registration closed).
+        if ( dcs_event_is_closed( $event_id ) ) {
+            wp_send_json_error( in_array( $mode, [ 'poll', 'group' ], true )
+                ? __( 'This poll is no longer accepting responses.', 'doodle-clone-scheduler' )
+                : __( 'Registration for this event is closed.', 'doodle-clone-scheduler' ) );
         }
 
         // Both handlers hold a lock and re-read _meeting_slots fresh from

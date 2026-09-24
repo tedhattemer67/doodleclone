@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.1.1
+Stable tag: 2.2.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,7 +27,12 @@ Other features:
 * Confirmation emails with an .ics attachment and an "Add to Google Calendar"
   link.
 * Admin poll-results roster with per-voter edit-link status.
-* One-click announcement email to all voters once a time is chosen.
+* Meeting details per event, overridable per slot: in person / online /
+  hybrid, address, Zoom/Teams link, meeting ID, passcode, dial-in numbers and
+  notes. Never shown on the public page — only emailed as final details.
+* Close & send final details: close a poll on its chosen time, or close
+  1-on-1 registration, then email everyone their slot's details (with .ics).
+  Re-send to everyone, or only to people not yet emailed.
 * `[doodle_schedule_overview]` shortcode listing all events and their slots
   (booker names shown only to logged-in editors).
 
@@ -50,6 +55,29 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.2.0 =
+* New **Meeting Details** box: format (in person / online / hybrid),
+  address or room, meeting link (https only), meeting ID, passcode, dial-in
+  numbers and notes. Set once for the event; any slot can override
+  individual fields. Stored separately from slot data (`_meeting_details`)
+  and never rendered on the public page or returned by the booking endpoint.
+* 1-on-1 events can now be closed: closing stops new sign-ups (the public
+  page shows "Registration is closed") and can be reopened.
+* **Send final details** (replaces "Send announcement"), for both types:
+  * Group poll: every voter gets the chosen time plus its meeting details.
+  * 1-on-1: each attendee gets their own slot's time and details.
+  * "Send to everyone" or "Send only to people not yet emailed".
+  * Details are read live at send time, so a link changed after closing goes
+    out on the next re-send.
+  * The admin gets one summary email per send.
+  * Warns when an online/hybrid slot with recipients has no meeting link.
+* 1-on-1 booking confirmations now note that meeting details will follow.
+* .ics fixes: UID now includes the slot id (separate slots of one event no
+  longer collapse into one calendar entry); TEXT values are escaped per
+  RFC 5545 and long lines folded; LOCATION / URL / DESCRIPTION carry the
+  meeting details; SEQUENCE increases on each send so re-imports update the
+  existing entry instead of duplicating it.
 
 = 2.1.1 =
 * Removed the "Select all times that work for you…" instruction line from
