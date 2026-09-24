@@ -208,6 +208,41 @@ $gm = mails_to( 'gus@example.com' );
 ok( count( $gm ) === 1 && ! str_contains( $gm[0]['body'], 'Part 1' ), 'single session confirmation has no part labels' );
 
 // ---------------------------------------------------------------------------
+section( 'D2. Max left blank = no limit' );
+ok( dcs_slot_capacity( [ 'max' => 0 ] ) === null && dcs_slot_capacity( [ 'max' => 5 ] ) === 5, 'capacity helper: 0 = no limit, number = limit' );
+ok( dcs_slot_capacity( [ 'id' => 'legacy' ] ) === 1, 'slot saved before Max existed keeps the old limit of 1' );
+make_event( 530, 'sessions', 'Open series' );
+save_event( 530, $NONCE + [
+    'dcs_meeting_mode' => 'sessions', 'parts' => [],
+    'slots' => [ $slot( $D1, '09:00', '', '' ), $slot( $D1, '14:00', 3, '' ) ],
+] );
+ok( slot_by( 530, $D1, '09:00' )['max'] === 0 && slot_by( 530, $D1, '14:00' )['max'] === 3, 'blank Max saved as 0 (no limit); number kept' );
+$all_ok = true;
+for ( $n = 1; $n <= 25; $n++ ) {
+    $r = ajax( [ 'event_id' => 530, 'name' => "P$n", 'email' => "p$n@example.com", 'part_slots' => [ key_of( 530, $D1, '09:00' ) ] ] );
+    $all_ok = $all_ok && $r && $r->ok;
+}
+ok( $all_ok && count( slot_by( 530, $D1, '09:00' )['attendees'] ) === 25, '25 people register for the no-limit session' );
+$html = front( 530 );
+ok( ! preg_match( '#' . preg_quote( key_of( 530, $D1, '09:00' ), '#' ) . '"[^>]*disabled#', $html ), 'no-limit session never shows as full' );
+ok( substr_count( $html, 'dcs-spots' ) === 1 && str_contains( $html, '(3 spots left)' ), 'places-left note only on the limited session' );
+$slots_box = render( fn() => DCS_Admin::render_slots_box( get_post( 530 ) ) );
+ok( str_contains( $slots_box, 'name="slots[0][max]" value="" min="1" placeholder="No limit"' ), 'admin shows no-limit slot with an empty Max' );
+$close_box = render( fn() => DCS_Admin::render_close_poll_box( get_post( 530 ) ) );
+ok( str_contains( $close_box, '25 / no limit' ) && str_contains( $close_box, '0 / 3' ), 'close box shows "no limit"' );
+$foot = render( fn() => DCS_Admin::admin_footer_scripts() );
+ok( str_contains( $foot, "=== 'sessions' ? '' : '1'" ), 'new slots: blank Max for Sessions, 1 for 1-on-1' );
+
+// 1-on-1 with blank Max is unlimited too; with a number it still fills up
+make_event( 531, 'booking', 'Open booking' );
+save_event( 531, $NONCE + [ 'dcs_meeting_mode' => 'booking', 'slots' => [ $slot( $D1, '09:00', '', '' ), $slot( $D1, '14:00', 1, '' ) ] ] );
+$r1 = ajax( [ 'event_id' => 531, 'name' => 'Q1', 'email' => 'q1@example.com', 'slot_id' => key_of( 531, $D1, '09:00' ) ] );
+$r2 = ajax( [ 'event_id' => 531, 'name' => 'Q2', 'email' => 'q2@example.com', 'slot_id' => key_of( 531, $D1, '09:00' ) ] );
+$r3 = ajax( [ 'event_id' => 531, 'name' => 'Q3', 'email' => 'q3@example.com', 'slot_id' => key_of( 531, $D1, '14:00' ) ] );
+$r4 = ajax( [ 'event_id' => 531, 'name' => 'Q4', 'email' => 'q4@example.com', 'slot_id' => key_of( 531, $D1, '14:00' ) ] );
+ok( $r1->ok && $r2->ok && $r3->ok && ! $r4->ok, '1-on-1: blank Max unlimited, Max 1 still fills after one booking' );
+
+// ---------------------------------------------------------------------------
 section( 'E. Close and send final details' );
 $box = render( fn() => DCS_Admin::render_close_poll_box( get_post( 500 ) ) );
 ok( str_contains( $box, '<th>Part</th>' ) && str_contains( $box, 'Who is attending each part' ) && str_contains( $box, 'skipping' ), 'close box: Part column + roster with skipped parts' );

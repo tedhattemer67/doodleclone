@@ -80,6 +80,9 @@ removing the plugin.
   * Close box shows a Part column and a who-attends-which-part roster.
     Final details: each person gets their own schedule, a heading per part,
     each session's details and one .ics per session.
+* Slot capacity: leaving **Max** blank now means no limit (any type). New
+  Sessions slots start with Max blank; new 1-on-1 slots still start at 1.
+  Existing slots keep their current Max.
 * Meeting details now resolve in three levels for Sessions: event default,
   then part, then slot — same "own link = own meeting" rule at each level.
 * Calendar descriptions are readable: details grouped into sections with

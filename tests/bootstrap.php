@@ -49,6 +49,11 @@ function save_event( $id, array $post ) {
 function slots( $id ) { return get_post_meta( $id, '_meeting_slots', true ); }
 /** Submits the public form via the AJAX handler; returns the JsonResponse. */
 function ajax( array $post ) {
+    // Every simulated visitor shares one IP; clear the per-IP / per-email
+    // rate-limit counters so tests of other behaviour aren't throttled.
+    foreach ( array_keys( $GLOBALS['_transients'] ) as $k ) {
+        if ( str_starts_with( $k, 'dcs_rl_' ) ) unset( $GLOBALS['_transients'][ $k ] );
+    }
     $ts    = (string) ( time() - 10 );
     $_POST = wp_slash( $post + [
         'dcs_nonce' => 'nonce-dcs_book_slot',

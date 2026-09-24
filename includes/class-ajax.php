@@ -299,7 +299,7 @@ class DCS_Ajax {
                     return [ 'ok' => false, 'error' => sprintf( __( '%s has already started.', 'doodle-clone-scheduler' ), dcs_slot_range( $slot ) ) ];
                 }
                 $others = array_filter( (array) ( $slot['attendees'] ?? [] ), fn( $a ) => ! $is_mine( $a ) );
-                if ( count( $others ) >= intval( $slot['max'] ?? 1 ) ) {
+                if ( dcs_slot_is_full( $slot, count( $others ) ) ) {
                     return [ 'ok' => false, 'error' => sprintf( __( 'Sorry, %s is already full.', 'doodle-clone-scheduler' ), dcs_slot_range( $slot ) ) ];
                 }
             }
@@ -401,8 +401,7 @@ class DCS_Ajax {
                 }
 
                 $attendees = ( ! empty( $slot['attendees'] ) && is_array( $slot['attendees'] ) ) ? $slot['attendees'] : [];
-                $max       = intval( $slot['max'] ?? 1 );
-                if ( count( $attendees ) >= $max ) {
+                if ( dcs_slot_is_full( $slot, count( $attendees ) ) ) {
                     return [ 'ok' => false, 'error' => __( 'Sorry, that slot is already full.', 'doodle-clone-scheduler' ) ];
                 }
 

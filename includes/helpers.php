@@ -88,6 +88,25 @@ function dcs_slot_key( array $slot ): string {
 }
 
 /**
+ * A slot's capacity, or null for no limit.
+ *
+ * Max left blank in the admin is stored as 0 and means unlimited. A slot
+ * saved before the field existed (no 'max' key at all) keeps the historical
+ * default of 1.
+ */
+function dcs_slot_capacity( array $slot ): ?int {
+    if ( ! array_key_exists( 'max', $slot ) ) return 1;
+    $max = intval( $slot['max'] );
+    return $max > 0 ? $max : null;
+}
+
+/** True when $taken people already fill the slot (never true when unlimited). */
+function dcs_slot_is_full( array $slot, int $taken ): bool {
+    $cap = dcs_slot_capacity( $slot );
+    return $cap !== null && $taken >= $cap;
+}
+
+/**
  * Formats a timestamp range in the plugin timezone.
  * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm ET"
  */

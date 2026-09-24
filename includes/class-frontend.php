@@ -446,7 +446,7 @@ class DCS_Frontend {
             }
             if ( $selected === '' && ! $editing && $attendance === 'recommended' && count( $g['slots'] ) === 1 ) {
                 $only = $g['slots'][0];
-                if ( count( (array) ( $only['attendees'] ?? [] ) ) < intval( $only['max'] ?? 1 ) ) $selected = dcs_slot_key( $only );
+                if ( ! dcs_slot_is_full( $only, count( (array) ( $only['attendees'] ?? [] ) ) ) ) $selected = dcs_slot_key( $only );
             }
 
             echo '<fieldset class="dcs-part" style="border:0;padding:0;margin:0 0 1em;">';
@@ -457,18 +457,23 @@ class DCS_Frontend {
             foreach ( $g['slots'] as $sl ) {
                 $key   = dcs_slot_key( $sl );
                 $taken = count( (array) ( $sl['attendees'] ?? [] ) );
-                $max   = intval( $sl['max'] ?? 1 );
+                $cap   = dcs_slot_capacity( $sl );
                 $mine  = in_array( $key, $prefill['slot_keys'], true );
-                $left  = max( 0, $max - $taken );
-                $full  = $left === 0 && ! $mine;
+                $full  = dcs_slot_is_full( $sl, $taken ) && ! $mine;
 
-                $note = $full
-                    ? esc_html__( 'Full', 'doodle-clone-scheduler' )
-                    : esc_html( sprintf( _n( '%d spot left', '%d spots left', $left, 'doodle-clone-scheduler' ), $left ) );
-                if ( $mine ) $note = esc_html__( 'your current choice', 'doodle-clone-scheduler' );
+                // No limit: no places-left note at all.
+                $note = '';
+                if ( $mine ) {
+                    $note = esc_html__( 'your current choice', 'doodle-clone-scheduler' );
+                } elseif ( $full ) {
+                    $note = esc_html__( 'Full', 'doodle-clone-scheduler' );
+                } elseif ( $cap !== null ) {
+                    $left = $cap - $taken;
+                    $note = esc_html( sprintf( _n( '%d spot left', '%d spots left', $left, 'doodle-clone-scheduler' ), $left ) );
+                }
 
                 printf(
-                    '<li><label%s><input type="radio" name="%s" value="%s"%s%s%s> %s <span class="dcs-spots">(%s)</span></label></li>',
+                    '<li><label%s><input type="radio" name="%s" value="%s"%s%s%s> %s%s</label></li>',
                     $full ? ' class="dcs-slot-full"' : '',
                     esc_attr( $field ),
                     esc_attr( $key ),
@@ -476,7 +481,7 @@ class DCS_Frontend {
                     $full ? ' disabled' : '',
                     $can_skip ? '' : ' required',
                     esc_html( dcs_slot_range( $sl ) ),
-                    $note
+                    $note !== '' ? ' <span class="dcs-spots">(' . $note . ')</span>' : ''
                 );
             }
             if ( $can_skip ) {
@@ -499,8 +504,7 @@ class DCS_Frontend {
         $label     = esc_html( dcs_slot_range( $slot ) );
         $value     = esc_attr( dcs_slot_key( $slot ) );
         $attendees = $slot['attendees'] ?? [];
-        $max       = intval( $slot['max'] ?? 1 );
-        $full      = ! $is_poll && count( $attendees ) >= $max;
+        $full      = ! $is_poll && dcs_slot_is_full( $slot, count( (array) $attendees ) );
 
         echo '<li>';
         if ( $full ) {

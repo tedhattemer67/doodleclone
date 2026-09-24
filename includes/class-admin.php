@@ -187,7 +187,7 @@ class DCS_Admin {
                 <br>
 
                 <label><?php esc_html_e( 'Max:', 'doodle-clone-scheduler' ); ?></label>
-                <input type="number" name="slots[<?php echo $i; ?>][max]" value="<?php echo esc_attr( $slot['max'] ?? 1 ); ?>" min="1">
+                <input type="number" name="slots[<?php echo $i; ?>][max]" value="<?php echo esc_attr( (string) ( dcs_slot_capacity( $slot ) ?? '' ) ); ?>" min="1" placeholder="<?php esc_attr_e( 'No limit', 'doodle-clone-scheduler' ); ?>" style="width:7em;">
                 <?php self::render_part_select( "slots[{$i}][part]", dcs_slot_part_id( $slot, $parts ), $parts ); ?>
 
                 <div class="dcs-attendees">
@@ -689,7 +689,7 @@ class DCS_Admin {
             $rows .= '<tr>'
                 . ( $part_col ? '<td>' . esc_html( $part_label ) . '</td>' : '' )
                 . '<td>' . esc_html( dcs_slot_range( $sl ) ) . '</td>'
-                . '<td>' . count( $attendees ) . ' / ' . intval( $sl['max'] ?? 1 ) . '</td>'
+                . '<td>' . count( $attendees ) . ' / ' . esc_html( (string) ( dcs_slot_capacity( $sl ) ?? __( 'no limit', 'doodle-clone-scheduler' ) ) ) . '</td>'
                 . '<td>' . ( $names ?: '—' ) . '</td>'
                 . '<td' . ( $flag ? ' style="color:#b32d2e;font-weight:600;"' : '' ) . '>' . esc_html( dcs_meeting_details_summary( $details ) ) . '</td>'
                 . '</tr>';
@@ -892,7 +892,8 @@ class DCS_Admin {
                 'id'               => $slot_id,
                 'date'             => sanitize_text_field( $s['date'] ),
                 'time'             => sanitize_text_field( $s['time'] ),
-                'max'              => intval( $s['max'] ?? 1 ),
+                // Blank Max = no limit (stored as 0; see dcs_slot_capacity()).
+                'max'              => trim( (string) ( $s['max'] ?? '' ) ) === '' ? 0 : max( 1, intval( $s['max'] ) ),
                 'attendees'        => $attendees,
                 'start'            => $start_ts,
                 'duration_minutes' => $dur_mins,
@@ -1213,7 +1214,9 @@ class DCS_Admin {
                     + '<label>Date:</label> <input type="date" name="slots['+i+'][date]" required><br>'
                     + '<label>Time:</label> <input type="time" name="slots['+i+'][time]" required>'
                     + '<label>Duration:</label> '+durationSelect('slots['+i+'][duration_minutes]','')+' <br>'
-                    + '<label>Max:</label>  <input type="number" name="slots['+i+'][max]" min="1" value="1">'
+                    // New Sessions slots start with no limit; 1-on-1 slots start at 1.
+                    + '<label>Max:</label>  <input type="number" name="slots['+i+'][max]" min="1" placeholder="No limit" style="width:7em;" value="'
+                    + ($('input[name="dcs_meeting_mode"]:checked').val() === 'sessions' ? '' : '1') + '">'
                     + $('#dcs-slot-part-tpl').html().replace(/__i__/g, i) + '<br>'
                     + '<div class="dcs-attendees">' + attendeeRow(i, 0, '', '') + '</div>'
                     + '<button type="button" class="dcs-add-att button">Add Attendee</button> '
