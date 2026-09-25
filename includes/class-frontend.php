@@ -25,7 +25,11 @@ class DCS_Frontend {
     // -------------------------------------------------------------------------
 
     public static function enqueue_assets(): void {
+        // Registered everywhere so the overview shortcode can enqueue it on
+        // whatever page it's placed on.
+        wp_register_style( 'dcs-frontend', DCS_PLUGIN_URL . 'frontend.css', [], DCS_VERSION );
         if ( ! is_singular( 'meeting_event' ) ) return;
+        wp_enqueue_style( 'dcs-frontend' );
         wp_enqueue_script( 'jquery' );
         wp_enqueue_script(
             'dcs-frontend',
@@ -65,8 +69,8 @@ class DCS_Frontend {
         // Closed 1-on-1 registration — no form
         if ( $is_closed ) {
             return $content
-                . '<div class="dcs-registration-closed" style="padding:16px 18px;border:1px solid #ccd0d4;background:#f6f7f7;border-radius:6px;margin:12px 0;">'
-                . '<p style="margin:0;"><strong>' . esc_html__( 'Registration for this event is closed.', 'doodle-clone-scheduler' ) . '</strong> '
+                . '<div class="dcs-notice dcs-registration-closed" role="status">'
+                . '<p><strong>' . esc_html__( 'Registration for this event is closed.', 'doodle-clone-scheduler' ) . '</strong> '
                 . esc_html__( 'If you registered, your final meeting details have been or will be sent to you by email.', 'doodle-clone-scheduler' )
                 . '</p></div>';
         }
@@ -112,23 +116,23 @@ class DCS_Frontend {
         $voter = self::resolve_voter_from_token( $post_id, $slots );
 
         ob_start();
-        echo '<div class="dcs-poll-closed" style="padding:16px 18px;border:1px solid #ccd0d4;background:#f6f7f7;border-radius:6px;margin:12px 0;">';
+        echo '<div class="dcs-notice dcs-poll-closed" role="status">';
 
         // --- Winning time block ---
-        echo '<p style="margin:0 0 10px;">';
+        echo '<p>';
         echo '<strong>' . esc_html__( 'This poll is now closed.', 'doodle-clone-scheduler' ) . '</strong>';
         if ( is_array( $snap ) && ! empty( $snap['start'] ) ) {
             $start = intval( $snap['start'] );
             $end   = isset( $snap['end'] ) ? intval( $snap['end'] ) : 0;
             echo ' ' . esc_html__( 'The meeting has been scheduled for:', 'doodle-clone-scheduler' );
             echo '</p>';
-            echo '<p style="margin:0 0 10px;font-size:1.05em;">'
+            echo '<p class="dcs-winner">'
                 . '<strong>' . esc_html( dcs_format_range( $start, $end ) ) . '</strong>';
 
             // Google Calendar and ICS links for the winner
             $post       = get_post( $post_id );
             $google_url = dcs_google_calendar_url( $post, $start, $end );
-            echo ' &nbsp;<a href="' . esc_url( $google_url ) . '" target="_blank" rel="noopener noreferrer" style="font-size:0.9em;">'
+            echo ' <a class="dcs-cal-link" href="' . esc_url( $google_url ) . '" target="_blank" rel="noopener noreferrer">'
                 . esc_html__( 'Add to Google Calendar', 'doodle-clone-scheduler' )
                 . '</a>';
             echo '</p>';
@@ -139,12 +143,12 @@ class DCS_Frontend {
 
         // --- Personalised voter summary (only when a valid token is present) ---
         if ( $voter !== null ) {
-            echo '<hr style="border:none;border-top:1px solid #dcdcde;margin:12px 0;">';
+            echo '<hr>';
 
             // Expired token — show a clear explanation rather than a blank section
             if ( $voter['expired'] ) {
                 $admin_email = antispambot( get_option( 'admin_email' ) );
-                echo '<p style="margin:0;color:#646970;">'
+                echo '<p class="dcs-muted">'
                     . esc_html__( 'The edit link you used has expired (links are valid for 30 days).', 'doodle-clone-scheduler' )
                     . ' '
                     . sprintf(
@@ -159,14 +163,14 @@ class DCS_Frontend {
 
             // Valid token — show personalised vote summary
             if ( ! empty( $voter['name'] ) ) {
-                echo '<p style="margin:0 0 8px;">'
+                echo '<p>'
                     . sprintf(
                         esc_html__( 'Hi %s — here\'s what you voted for:', 'doodle-clone-scheduler' ),
                         '<strong>' . esc_html( $voter['name'] ) . '</strong>'
                     )
                     . '</p>';
             } else {
-                echo '<p style="margin:0 0 8px;"><strong>' . esc_html__( 'Your selections:', 'doodle-clone-scheduler' ) . '</strong></p>';
+                echo '<p><strong>' . esc_html__( 'Your selections:', 'doodle-clone-scheduler' ) . '</strong></p>';
             }
 
             if ( ! empty( $voter['slot_keys'] ) ) {
@@ -177,21 +181,20 @@ class DCS_Frontend {
                 // Find the winning slot so we can highlight it
                 $winning_start = ( is_array( $snap ) && ! empty( $snap['start'] ) ) ? intval( $snap['start'] ) : 0;
 
-                echo '<ul style="margin:0 0 0 1.2em;padding:0;">';
+                echo '<ul class="dcs-vote-list">';
                 foreach ( $selected_slots as $slot ) {
                     $is_winner = $winning_start && intval( $slot['start'] ?? 0 ) === $winning_start;
-                    $style     = $is_winner ? 'color:#1d7914;font-weight:bold;' : 'color:#3c434a;';
                     $suffix    = $is_winner
-                        ? ' &nbsp;<span style="font-size:0.85em;">✓ ' . esc_html__( 'Selected time', 'doodle-clone-scheduler' ) . '</span>'
+                        ? ' <span class="dcs-badge dcs-badge--success">✓ ' . esc_html__( 'Selected time', 'doodle-clone-scheduler' ) . '</span>'
                         : '';
-                    echo '<li style="' . $style . 'margin-bottom:3px;">'
+                    echo '<li' . ( $is_winner ? ' class="dcs-vote-winner"' : '' ) . '>'
                         . esc_html( dcs_slot_range( $slot ) )
                         . $suffix
                         . '</li>';
                 }
                 echo '</ul>';
             } else {
-                echo '<p style="margin:0;color:#646970;font-style:italic;">'
+                echo '<p class="dcs-muted">'
                     . esc_html__( 'No selections were recorded for your email address.', 'doodle-clone-scheduler' )
                     . '</p>';
             }
@@ -263,7 +266,7 @@ class DCS_Frontend {
 
     private static function render_expired_token_notice(): string {
         $admin_email = antispambot( get_option( 'admin_email' ) );
-        return '<div class="dcs-token-expired" style="padding:12px 14px;border:1px solid #f0b849;background:#fef9ef;border-radius:6px;margin:0 0 16px;">'
+        return '<div class="dcs-notice dcs-notice--warning dcs-token-expired" role="status">'
             . '<strong>' . esc_html__( 'Your edit link has expired.', 'doodle-clone-scheduler' ) . '</strong> '
             . esc_html__( 'Edit links are valid for 30 days. Your previous selections are no longer pre-filled, but you can submit your availability again using the form below.', 'doodle-clone-scheduler' )
             . ' '
@@ -286,7 +289,7 @@ class DCS_Frontend {
         foreach ( $slots as $slot ) {
             if ( dcs_slot_key( $slot ) !== $slot_key ) continue;
             $range = dcs_slot_range( $slot );
-            return '<div class="notice notice-success" style="padding:10px;margin-bottom:1em;">'
+            return '<div class="dcs-notice dcs-notice--success" role="status">'
                 . sprintf(
                     esc_html__( 'Thanks %1$s — you are booked for %2$s.', 'doodle-clone-scheduler' ),
                     esc_html( $user ),
@@ -346,19 +349,43 @@ class DCS_Frontend {
         ob_start();
         self::render_form_open();
 
+        // Slot labels are times only: the date is the card heading and the
+        // timezone is stated once here.
+        $tz = dcs_slots_tz_label( $slots );
+        echo '<p class="dcs-intro">' . esc_html( $is_poll
+            ? __( 'Select every time that works for you.', 'doodle-clone-scheduler' )
+            : __( 'Choose one time.', 'doodle-clone-scheduler' ) );
+        if ( $tz !== '' ) {
+            /* translators: %s: timezone abbreviation, e.g. EDT */
+            echo ' <span class="dcs-tz">' . esc_html( sprintf( __( 'All times are %s.', 'doodle-clone-scheduler' ), $tz ) ) . '</span>';
+        }
+        echo '</p>';
+
+        echo '<div class="dcs-days">';
+        $i = 0;
         foreach ( $grouped as $date => $day_slots ) {
-            echo '<h3>' . esc_html( date_i18n( 'l, F j, Y', strtotime( $date ) ) ) . '</h3>';
+            $ts      = strtotime( $date );
+            $head_id = 'dcs-day-' . $i++;
+            printf( '<div class="dcs-day" role="group" aria-labelledby="%s">', esc_attr( $head_id ) );
+            printf(
+                '<h3 class="dcs-day-head" id="%s"><span class="dcs-day-name">%s</span> <span class="dcs-day-date">%s</span></h3>',
+                esc_attr( $head_id ),
+                esc_html( date_i18n( 'l', $ts ) ),
+                esc_html( date_i18n( 'M j, Y', $ts ) )
+            );
             echo '<ul class="dcs-slots">';
             foreach ( $day_slots as $slot ) {
                 self::render_slot_item( $slot, $is_poll, $prefill );
             }
-            echo '</ul>';
+            echo '</ul></div>';
         }
+        echo '</div>';
 
         self::render_form_close(
             $post_id,
             $prefill,
-            $is_poll ? __( 'Submit Availability', 'doodle-clone-scheduler' ) : __( 'Book', 'doodle-clone-scheduler' )
+            $is_poll ? __( 'Submit Availability', 'doodle-clone-scheduler' ) : __( 'Book', 'doodle-clone-scheduler' ),
+            $is_poll
         );
 
         return ob_get_clean();
@@ -389,26 +416,38 @@ class DCS_Frontend {
         }
     }
 
-    /** Name / email fields, event id, submit button, closing tag and message area. */
-    private static function render_form_close( int $post_id, array $prefill, string $btn_label ): void {
-        echo '<p>';
+    /**
+     * Name / email fields, event id, submit button, closing tag and message
+     * area. $show_count adds the "N times selected" counter script.js fills.
+     */
+    private static function render_form_close( int $post_id, array $prefill, string $btn_label, bool $show_count = false ): void {
+        echo '<fieldset class="dcs-details">';
+        echo '<legend class="dcs-details-title">' . esc_html__( 'Your details', 'doodle-clone-scheduler' ) . '</legend>';
+        echo '<div class="dcs-fields">';
         printf(
-            '<input type="text" name="name" id="dcs-name" placeholder="%s" value="%s" required> ',
-            esc_attr__( 'Your Name', 'doodle-clone-scheduler' ),
+            '<p class="dcs-field"><label for="dcs-name">%s</label><input type="text" name="name" id="dcs-name" value="%s" autocomplete="name" required></p>',
+            esc_html__( 'Name', 'doodle-clone-scheduler' ),
             esc_attr( $prefill['name'] )
         );
         printf(
-            '<input type="email" name="email" id="dcs-email" placeholder="%s" value="%s" required>',
-            esc_attr__( 'Your Email', 'doodle-clone-scheduler' ),
+            '<p class="dcs-field"><label for="dcs-email">%s</label><input type="email" name="email" id="dcs-email" value="%s" autocomplete="email" required></p>',
+            esc_html__( 'Email', 'doodle-clone-scheduler' ),
             esc_attr( $prefill['email'] )
         );
-        echo '</p>';
+        echo '</div>';
+        echo '<p class="dcs-hint">' . esc_html__( 'Your confirmation will be emailed to this address.', 'doodle-clone-scheduler' ) . '</p>';
+        echo '</fieldset>';
 
         printf( '<input type="hidden" name="event_id" value="%d">', $post_id );
 
-        echo '<button type="submit">' . esc_html( $btn_label ) . '</button>';
+        echo '<div class="dcs-actions">';
+        echo '<button type="submit" class="dcs-submit">' . esc_html( $btn_label ) . '</button>';
+        if ( $show_count ) {
+            echo '<span class="dcs-count" aria-live="polite"></span>';
+        }
+        echo '</div>';
         echo '</form>';
-        echo '<div id="dcs-message" aria-live="polite"></div>';
+        echo '<div id="dcs-message" class="dcs-message" aria-live="polite"></div>';
     }
 
     /**
@@ -449,9 +488,9 @@ class DCS_Frontend {
                 if ( ! dcs_slot_is_full( $only, count( (array) ( $only['attendees'] ?? [] ) ) ) ) $selected = dcs_slot_key( $only );
             }
 
-            echo '<fieldset class="dcs-part" style="border:0;padding:0;margin:0 0 1em;">';
+            echo '<fieldset class="dcs-part">';
             if ( $multi ) {
-                echo '<legend><h3 style="margin:0 0 .4em;">' . esc_html( dcs_part_label( $g, $gi ) ) . '</h3></legend>';
+                echo '<legend><h3>' . esc_html( dcs_part_label( $g, $gi ) ) . '</h3></legend>';
             }
             echo '<ul class="dcs-slots">';
             foreach ( $g['slots'] as $sl ) {
@@ -463,17 +502,20 @@ class DCS_Frontend {
 
                 // No limit: no places-left note at all.
                 $note = '';
+                $mod  = '';
                 if ( $mine ) {
                     $note = esc_html__( 'your current choice', 'doodle-clone-scheduler' );
+                    $mod  = ' dcs-badge--mine';
                 } elseif ( $full ) {
                     $note = esc_html__( 'Full', 'doodle-clone-scheduler' );
+                    $mod  = ' dcs-badge--full';
                 } elseif ( $cap !== null ) {
                     $left = $cap - $taken;
                     $note = esc_html( sprintf( _n( '%d spot left', '%d spots left', $left, 'doodle-clone-scheduler' ), $left ) );
                 }
 
                 printf(
-                    '<li><label%s><input type="radio" name="%s" value="%s"%s%s%s> %s%s</label></li>',
+                    '<li><label%s><input type="radio" name="%s" value="%s"%s%s%s> <span class="dcs-slot-time">%s</span>%s</label></li>',
                     $full ? ' class="dcs-slot-full"' : '',
                     esc_attr( $field ),
                     esc_attr( $key ),
@@ -481,12 +523,12 @@ class DCS_Frontend {
                     $full ? ' disabled' : '',
                     $can_skip ? '' : ' required',
                     esc_html( dcs_slot_range( $sl ) ),
-                    $note !== '' ? ' <span class="dcs-spots">(' . $note . ')</span>' : ''
+                    $note !== '' ? ' <span class="dcs-badge dcs-spots' . $mod . '">' . $note . '</span>' : ''
                 );
             }
             if ( $can_skip ) {
                 printf(
-                    '<li><label><input type="radio" name="%s" value=""%s> %s</label></li>',
+                    '<li class="dcs-slot-skip"><label><input type="radio" name="%s" value=""%s> %s</label></li>',
                     esc_attr( $field ),
                     $selected === '' ? ' checked' : '',
                     esc_html__( "Can't attend this part", 'doodle-clone-scheduler' )
@@ -501,14 +543,14 @@ class DCS_Frontend {
     }
 
     private static function render_slot_item( array $slot, bool $is_poll, array $prefill ): void {
-        $label     = esc_html( dcs_slot_range( $slot ) );
+        $label     = '<span class="dcs-slot-time">' . esc_html( dcs_slot_time_range( $slot ) ) . '</span>';
         $value     = esc_attr( dcs_slot_key( $slot ) );
         $attendees = $slot['attendees'] ?? [];
         $full      = ! $is_poll && dcs_slot_is_full( $slot, count( (array) $attendees ) );
 
         echo '<li>';
         if ( $full ) {
-            echo '<span class="dcs-slot-full">' . $label . ' — ' . esc_html__( 'Full', 'doodle-clone-scheduler' ) . '</span>';
+            echo '<span class="dcs-slot-full">' . $label . ' <span class="dcs-badge dcs-badge--full">' . esc_html__( 'Full', 'doodle-clone-scheduler' ) . '</span></span>';
         } elseif ( $is_poll ) {
             $checked = in_array( dcs_slot_key( $slot ), $prefill['slot_keys'], true ) ? ' checked' : '';
             printf(
@@ -535,6 +577,8 @@ class DCS_Frontend {
         $events = get_posts( [ 'post_type' => 'meeting_event', 'numberposts' => -1 ] );
         if ( ! $events ) return '<p>' . esc_html__( 'No meeting events found.', 'doodle-clone-scheduler' ) . '</p>';
 
+        wp_enqueue_style( 'dcs-frontend' );
+
         // Only privileged users see who booked; everyone else sees Booked/Available.
         $show_names = current_user_can( 'edit_posts' );
 
@@ -545,7 +589,7 @@ class DCS_Frontend {
             usort( $slots, fn( $a, $b ) => ( $a['start'] ?? 0 ) - ( $b['start'] ?? 0 ) );
 
             $output .= '<h2>' . esc_html( get_the_title( $event->ID ) ) . '</h2>';
-            $output .= '<table border="1" cellpadding="6" cellspacing="0" style="margin-bottom:20px;">';
+            $output .= '<table class="dcs-overview-table">';
             $output .= '<thead><tr><th>' . esc_html__( 'Time', 'doodle-clone-scheduler' ) . '</th><th>' . esc_html__( 'Status', 'doodle-clone-scheduler' ) . '</th></tr></thead><tbody>';
             foreach ( $slots as $slot ) {
                 $attendees = ( ! empty( $slot['attendees'] ) && is_array( $slot['attendees'] ) ) ? $slot['attendees'] : [];

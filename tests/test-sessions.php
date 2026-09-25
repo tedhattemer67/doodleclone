@@ -108,7 +108,7 @@ ok( substr_count( $html, 'Can&#039;t attend this part' ) === 3, '"Can\'t attend"
 ok( str_contains( $html, 'Attending every part is recommended' ), 'recommended note shown' );
 ok( (bool) preg_match( '#name="part_slots\[2\]" value="' . preg_quote( key_of( 500, $D3, '09:00' ), '#' ) . '" checked#', $html ), 'single-time part starts ticked' );
 ok( (bool) preg_match( '#name="part_slots\[0\]" value="" checked#', $html ), 'multi-time part starts on "Can\'t attend" (no silent pick)' );
-ok( str_contains( $html, '(2 spots left)' ) && str_contains( $html, '(1 spot left)' ), 'places left shown' );
+ok( str_contains( $html, '>2 spots left</span>' ) && str_contains( $html, '>1 spot left</span>' ), 'places left shown' );
 ok( str_contains( $html, '>Register</button>' ), 'Register button' );
 ok( ! leaks( $html ), 'public form leaks no details: ' . implode( ',', leaks( $html ) ) );
 
@@ -225,7 +225,7 @@ for ( $n = 1; $n <= 25; $n++ ) {
 ok( $all_ok && count( slot_by( 530, $D1, '09:00' )['attendees'] ) === 25, '25 people register for the no-limit session' );
 $html = front( 530 );
 ok( ! preg_match( '#' . preg_quote( key_of( 530, $D1, '09:00' ), '#' ) . '"[^>]*disabled#', $html ), 'no-limit session never shows as full' );
-ok( substr_count( $html, 'dcs-spots' ) === 1 && str_contains( $html, '(3 spots left)' ), 'places-left note only on the limited session' );
+ok( substr_count( $html, 'dcs-spots' ) === 1 && str_contains( $html, '>3 spots left</span>' ), 'places-left note only on the limited session' );
 $slots_box = render( fn() => DCS_Admin::render_slots_box( get_post( 530 ) ) );
 ok( str_contains( $slots_box, 'name="slots[0][max]" value="" min="1" placeholder="No limit"' ), 'admin shows no-limit slot with an empty Max' );
 $close_box = render( fn() => DCS_Admin::render_close_poll_box( get_post( 530 ) ) );

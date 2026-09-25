@@ -142,6 +142,32 @@ function dcs_slot_range( array $slot ): string {
 }
 
 /**
+ * Just the times of a slot, e.g. "12:00pm – 1:30pm". For the public form's
+ * day cards, where the card heading gives the date and the timezone is
+ * stated once above the grid (see dcs_slots_tz_label()).
+ */
+function dcs_slot_time_range( array $slot ): string {
+    [ $start, $end ] = dcs_slot_times( $slot );
+    if ( $start <= 0 ) return '—';
+    $fmt = fn( int $ts ) => ( new DateTimeImmutable( '@' . $ts ) )->setTimezone( dcs_tz() )->format( 'g:ia' );
+    return $end > $start ? $fmt( $start ) . ' – ' . $fmt( $end ) : $fmt( $start );
+}
+
+/**
+ * Timezone abbreviation(s) in effect on the slots' own dates: "EDT", or
+ * "EDT/EST" when they straddle a daylight-saving change.
+ */
+function dcs_slots_tz_label( array $slots ): string {
+    $abbrs = [];
+    foreach ( $slots as $slot ) {
+        [ $start ] = dcs_slot_times( $slot );
+        if ( $start <= 0 ) continue;
+        $abbrs[ ( new DateTimeImmutable( '@' . $start ) )->setTimezone( dcs_tz() )->format( 'T' ) ] = true;
+    }
+    return implode( '/', array_keys( $abbrs ) );
+}
+
+/**
  * Converts a date string + time string (as entered in the admin UI) to a UTC epoch.
  * The strings are interpreted as local wall-clock time in DCS_TIMEZONE.
  */

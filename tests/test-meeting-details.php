@@ -288,9 +288,21 @@ $expired = $b64 . '.' . hash_hmac( 'sha256', $b64, AUTH_SALT );
 $html    = front( 302, $expired );
 ok( str_contains( $html, 'Your edit link has expired' ) && str_contains( $html, 'name="slot_ids[]"' ), 'expired edit link on open poll: notice + blank form (was a fatal error)' );
 
+// Public form layout: one card per day, times only (date in the card
+// heading, timezone stated once), labelled name/email fields.
+$ts1 = strtotime( $D1 );
+ok( substr_count( $html, 'class="dcs-day"' ) === 1 && str_contains( $html, '<span class="dcs-day-name">' . date( 'l', $ts1 ) . '</span>' ), 'poll: one day card with weekday heading' );
+ok( str_contains( $html, '<span class="dcs-slot-time">11:00am – 11:30am</span>' ), 'poll: slot label is the time range only' );
+ok( (bool) preg_match( '#<p class="dcs-intro">Select every time that works for you\. <span class="dcs-tz">All times are E[SD]T\.</span></p>#', $html ), 'poll: instructions + timezone stated once' );
+ok( str_contains( $html, '<label for="dcs-name">Name</label>' ) && str_contains( $html, '<label for="dcs-email">Email</label>' ), 'name/email have real labels' );
+ok( str_contains( $html, 'class="dcs-count"' ), 'poll: selection counter present' );
+ok( ! preg_match( '#<(p|ul|li|fieldset|h3)[^>]* style="#', $html ), 'public form: no inline styles on layout elements (honeypot div keeps its own)' );
+ok( dcs_slots_tz_label( [ [ 'start' => strtotime( '2026-10-30 12:00 UTC' ) ], [ 'start' => strtotime( '2026-11-02 12:00 UTC' ) ] ] ) === 'EDT/EST', 'timezone label covers a DST change' );
+
 make_event( 301, 'booking', 'Old Booking' );
 update_post_meta( 301, '_meeting_slots', [ [ 'id' => 'slot_b1', 'date' => $D1, 'time' => '11:00', 'duration_minutes' => 30, 'max' => 2, 'attendees' => [] ] ] );
 ok( str_contains( front( 301 ), 'dcs-booking' ), 'existing 1-on-1 with no status meta is open' );
+ok( ! str_contains( front( 301 ), 'dcs-count' ) && str_contains( front( 301 ), 'Choose one time.' ), '1-on-1: no counter, single-choice instructions' );
 
 // ---------------------------------------------------------------------------
 section( 'I. Admin screens render cleanly' );

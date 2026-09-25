@@ -1,0 +1,492 @@
+/**
+ * DCS Frontend Styles
+ * Public meeting-event form, notices and the overview shortcode.
+ *
+ * Fonts are inherited from the theme. To re-colour, override the custom
+ * properties below, e.g. in Appearance → Customize → Additional CSS:
+ *   .dcs-booking-form, .dcs-notice, .dcs-message { --dcs-accent: #7a1f5c; }
+ */
+
+.dcs-booking-form,
+.dcs-notice,
+.dcs-message,
+.dcs-schedule-overview {
+    --dcs-accent:        #2d5c88;
+    --dcs-accent-hover:  #234a6e;
+    --dcs-accent-tint:   #eaf1f8;
+    --dcs-text:          #2c3338;
+    --dcs-muted:         #646970;
+    --dcs-border:        #d0d5db;
+    --dcs-surface:       #ffffff;
+    --dcs-surface-alt:   #f6f7f8;
+    --dcs-success:       #1e7b34;
+    --dcs-success-tint:  #edf7ef;
+    --dcs-warning:       #9a6700;
+    --dcs-warning-tint:  #fff8e6;
+    --dcs-error:         #b32d2e;
+    --dcs-error-tint:    #fcf0f1;
+    --dcs-radius:        8px;
+}
+
+/* -------------------------------------------------------------------------
+ * Form layout
+ * ---------------------------------------------------------------------- */
+
+.dcs-booking-form {
+    margin: 1.5em 0 0;
+    color: var(--dcs-text);
+}
+
+.dcs-booking-form fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+}
+
+.dcs-booking-form .dcs-intro,
+.dcs-booking-form .dcs-attendance-note {
+    margin: 0 0 1em;
+    font-size: 1.05em;
+}
+
+.dcs-booking-form .dcs-tz {
+    color: var(--dcs-muted);
+}
+
+/* Day cards (polls and 1-on-1) */
+.dcs-booking-form .dcs-days {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 0 0 1.75em;
+}
+
+.dcs-booking-form .dcs-day {
+    border: 1px solid var(--dcs-border);
+    border-radius: var(--dcs-radius);
+    background: var(--dcs-surface);
+    overflow: hidden;
+}
+
+.dcs-booking-form .dcs-day-head {
+    margin: 0;
+    padding: 10px 12px;
+    background: var(--dcs-surface-alt);
+    border-bottom: 1px solid var(--dcs-border);
+    font-family: inherit;
+    font-size: 1em;
+    font-weight: normal;
+    line-height: 1.3;
+    color: var(--dcs-text);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.dcs-booking-form .dcs-day-name {
+    display: block;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dcs-muted);
+}
+
+.dcs-booking-form .dcs-day-date {
+    display: block;
+    font-weight: 700;
+}
+
+.dcs-booking-form .dcs-day .dcs-slots {
+    padding: 8px;
+}
+
+/* Sessions: one section per part */
+.dcs-booking-form .dcs-part {
+    margin: 0 0 1.5em;
+}
+
+.dcs-booking-form .dcs-part legend {
+    padding: 0;
+    border: 0;
+    margin: 0 0 0.5em;
+}
+
+.dcs-booking-form .dcs-part h3 {
+    margin: 0;
+    font-family: inherit;
+    font-size: 1.15em;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--dcs-text);
+}
+
+/* -------------------------------------------------------------------------
+ * Slot options
+ * ---------------------------------------------------------------------- */
+
+.dcs-booking-form ul.dcs-slots {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.dcs-booking-form .dcs-part ul.dcs-slots {
+    max-width: 560px;
+}
+
+.dcs-booking-form .dcs-slots li {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dcs-booking-form .dcs-slots li::before {
+    content: none; /* themes that draw their own bullets */
+}
+
+.dcs-booking-form .dcs-slots label,
+.dcs-booking-form .dcs-slots .dcs-slot-full {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--dcs-border);
+    border-radius: 6px;
+    background: var(--dcs-surface);
+    font-weight: normal;
+    line-height: 1.3;
+    cursor: pointer;
+    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.dcs-booking-form .dcs-slots label:hover {
+    border-color: var(--dcs-accent);
+}
+
+.dcs-booking-form .dcs-slots label:has(input:checked) {
+    border-color: var(--dcs-accent);
+    background: var(--dcs-accent-tint);
+    box-shadow: inset 0 0 0 1px var(--dcs-accent);
+}
+
+.dcs-booking-form .dcs-slots label:has(input:checked) .dcs-slot-time {
+    font-weight: 700;
+}
+
+.dcs-booking-form .dcs-slots label:has(input:focus-visible) {
+    outline: 2px solid var(--dcs-accent);
+    outline-offset: 2px;
+}
+
+.dcs-booking-form .dcs-slots input[type="checkbox"],
+.dcs-booking-form .dcs-slots input[type="radio"] {
+    flex: none;
+    width: 1.1em;
+    height: 1.1em;
+    margin: 0;
+    accent-color: var(--dcs-accent);
+    cursor: pointer;
+}
+
+.dcs-booking-form .dcs-slot-time {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Full: greyed out, not clickable */
+.dcs-booking-form .dcs-slots .dcs-slot-full,
+.dcs-booking-form .dcs-slots label.dcs-slot-full {
+    background: var(--dcs-surface-alt);
+    color: var(--dcs-muted);
+    cursor: not-allowed;
+}
+
+.dcs-booking-form .dcs-slots label.dcs-slot-full:hover {
+    border-color: var(--dcs-border);
+}
+
+.dcs-booking-form .dcs-slot-full .dcs-slot-time {
+    text-decoration: line-through;
+}
+
+.dcs-booking-form .dcs-slot-full input {
+    cursor: not-allowed;
+}
+
+/* "Can't attend this part" */
+.dcs-booking-form .dcs-slot-skip label {
+    border-style: dashed;
+    color: var(--dcs-muted);
+}
+
+/* -------------------------------------------------------------------------
+ * Badges
+ * ---------------------------------------------------------------------- */
+
+.dcs-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--dcs-accent-tint);
+    color: var(--dcs-accent);
+    font-size: 0.8em;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.dcs-badge--full {
+    background: #e8eaed;
+    color: var(--dcs-muted);
+}
+
+.dcs-badge--mine,
+.dcs-badge--success {
+    background: var(--dcs-success-tint);
+    color: var(--dcs-success);
+}
+
+/* -------------------------------------------------------------------------
+ * Your details + submit
+ * ---------------------------------------------------------------------- */
+
+.dcs-booking-form .dcs-details {
+    margin: 0 0 1.25em;
+    padding-top: 1.25em;
+    border-top: 1px solid var(--dcs-border);
+}
+
+.dcs-booking-form .dcs-details legend {
+    float: left; /* keeps the legend inside the fieldset's top border */
+    width: 100%;
+    padding: 0;
+    margin: 0 0 0.75em;
+    border: 0;
+    font-size: 1.15em;
+    font-weight: 700;
+}
+
+.dcs-booking-form .dcs-fields {
+    clear: both;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px 16px;
+    max-width: 640px;
+}
+
+.dcs-booking-form .dcs-field {
+    margin: 0;
+}
+
+.dcs-booking-form .dcs-field label {
+    display: block;
+    margin: 0 0 4px;
+    font-weight: 600;
+}
+
+.dcs-booking-form .dcs-field label::after {
+    content: " *";
+    color: var(--dcs-error);
+}
+
+.dcs-booking-form .dcs-field input {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 9px 11px;
+    border: 1px solid var(--dcs-border);
+    border-radius: 6px;
+    background: var(--dcs-surface);
+    color: var(--dcs-text);
+    font: inherit;
+    line-height: 1.4;
+    box-shadow: none;
+}
+
+.dcs-booking-form .dcs-field input:focus {
+    border-color: var(--dcs-accent);
+    outline: 2px solid var(--dcs-accent-tint);
+    outline-offset: 0;
+    box-shadow: 0 0 0 1px var(--dcs-accent);
+}
+
+.dcs-booking-form .dcs-hint {
+    margin: 8px 0 0;
+    font-size: 0.9em;
+    color: var(--dcs-muted);
+}
+
+.dcs-booking-form .dcs-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+}
+
+.dcs-booking-form .dcs-submit {
+    display: inline-block;
+    margin: 0;
+    padding: 11px 24px;
+    border: 1px solid var(--dcs-accent);
+    border-radius: 6px;
+    background: var(--dcs-accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    line-height: 1.3;
+    text-shadow: none;
+    box-shadow: none;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.dcs-booking-form .dcs-submit:hover {
+    background: var(--dcs-accent-hover);
+    border-color: var(--dcs-accent-hover);
+    color: #fff;
+}
+
+.dcs-booking-form .dcs-submit:focus-visible {
+    outline: 2px solid var(--dcs-accent);
+    outline-offset: 2px;
+}
+
+.dcs-booking-form .dcs-submit:disabled {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+.dcs-booking-form .dcs-count {
+    color: var(--dcs-muted);
+}
+
+/* -------------------------------------------------------------------------
+ * Notices and the submit result message
+ * ---------------------------------------------------------------------- */
+
+.dcs-notice,
+.dcs-message:not(:empty) {
+    margin: 0 0 1.25em;
+    padding: 14px 16px;
+    border: 1px solid var(--dcs-border);
+    border-left: 4px solid var(--dcs-accent);
+    border-radius: 6px;
+    background: var(--dcs-surface-alt);
+    color: var(--dcs-text);
+    line-height: 1.5;
+}
+
+.dcs-notice p {
+    margin: 0 0 0.6em;
+}
+
+.dcs-notice p:last-child {
+    margin-bottom: 0;
+}
+
+.dcs-notice hr {
+    height: 0;
+    margin: 12px 0;
+    border: 0;
+    border-top: 1px solid var(--dcs-border);
+    background: none;
+}
+
+.dcs-notice .dcs-winner {
+    font-size: 1.1em;
+}
+
+.dcs-notice .dcs-cal-link {
+    margin-left: 8px;
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.dcs-notice .dcs-muted {
+    color: var(--dcs-muted);
+}
+
+.dcs-notice .dcs-vote-list {
+    margin: 0 0 0 1.2em;
+    padding: 0;
+}
+
+.dcs-notice .dcs-vote-list li {
+    margin: 0 0 4px;
+}
+
+.dcs-notice .dcs-vote-winner {
+    font-weight: 700;
+    color: var(--dcs-success);
+}
+
+.dcs-notice--success,
+.dcs-message:not(:empty) {
+    border-left-color: var(--dcs-success);
+    background: var(--dcs-success-tint);
+}
+
+.dcs-notice--warning {
+    border-left-color: var(--dcs-warning);
+    background: var(--dcs-warning-tint);
+}
+
+.dcs-message.dcs-message--error:not(:empty) {
+    border-left-color: var(--dcs-error);
+    background: var(--dcs-error-tint);
+}
+
+.dcs-message:not(:empty) {
+    margin: 1.25em 0 0;
+}
+
+/* -------------------------------------------------------------------------
+ * [doodle_schedule_overview]
+ * ---------------------------------------------------------------------- */
+
+.dcs-schedule-overview .dcs-overview-table {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 0 2em;
+    border-collapse: collapse;
+    border: 1px solid var(--dcs-border);
+}
+
+.dcs-schedule-overview .dcs-overview-table th,
+.dcs-schedule-overview .dcs-overview-table td {
+    padding: 8px 12px;
+    border: 1px solid var(--dcs-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.dcs-schedule-overview .dcs-overview-table th {
+    background: var(--dcs-surface-alt);
+    font-weight: 700;
+}
+
+.dcs-schedule-overview .dcs-overview-table em {
+    color: var(--dcs-success);
+    font-style: normal;
+}
+
+/* -------------------------------------------------------------------------
+ * Small screens
+ * ---------------------------------------------------------------------- */
+
+@media (max-width: 480px) {
+    .dcs-booking-form .dcs-days {
+        grid-template-columns: 1fr;
+    }
+
+    .dcs-booking-form .dcs-submit {
+        width: 100%;
+    }
+}

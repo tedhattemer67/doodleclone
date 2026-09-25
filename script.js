@@ -4,6 +4,17 @@
  */
 jQuery( document ).ready( function ( $ ) {
 
+    // Poll forms: "N times selected" next to the submit button.
+    var $count = $( '#dcs-booking .dcs-count' );
+    function updateCount() {
+        var n = $( '#dcs-booking input[name="slot_ids[]"]:checked' ).length;
+        $count.text( n === 0 ? '' : ( n === 1 ? '1 time selected' : n + ' times selected' ) );
+    }
+    if ( $count.length ) {
+        $( '#dcs-booking' ).on( 'change', 'input[name="slot_ids[]"]', updateCount );
+        updateCount(); // edit links arrive with earlier picks already ticked
+    }
+
     $( '#dcs-booking' ).on( 'submit', function ( e ) {
         e.preventDefault();
 

@@ -106,6 +106,10 @@ function wp_timezone() { return new DateTimeZone( 'America/New_York' ); }
 function date_i18n( $f, $ts ) { return date( $f, $ts ); }
 function wp_date( $f, $ts, $tz = null ) { return ( new DateTimeImmutable( '@' . $ts ) )->setTimezone( $tz ?: wp_timezone() )->format( $f ); }
 
+// Assets
+function wp_register_style( ...$a ) {}
+function wp_enqueue_style( ...$a ) {}
+
 // Front-end loop context
 function is_singular() { return true; }
 function in_the_loop() { return true; }

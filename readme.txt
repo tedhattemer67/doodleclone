@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.3.0
+Stable tag: 2.3.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,25 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.3.1 =
+* Public page restyled. The plugin now ships its own stylesheet
+  (`frontend.css`); colours are CSS custom properties (`--dcs-accent` etc.)
+  that a theme or Additional CSS can override.
+  * Poll and 1-on-1 times are shown as a grid of day cards, each time a
+    clickable row that highlights when selected. Labels show just the times;
+    the date is the card heading and the timezone is stated once above the
+    grid ("All times are EDT.").
+  * Short instructions above the grid; a "N times selected" counter next to
+    the submit button on polls.
+  * Name and email have visible labels (were placeholders only) and a
+    "Your details" heading; the submit button is a proper primary button.
+  * Sessions: places left and "your current choice" shown as badges;
+    "Can't attend this part" visually set apart.
+  * Closed / expired-link / booked notices and the submit result message
+    are styled as success, warning or error boxes; inline styles removed.
+  * `[doodle_schedule_overview]` table styled via CSS instead of HTML
+    border attributes.
 
 = 2.3.0 =
 * New meeting type: **Sessions / series** (all meetings held; people pick
