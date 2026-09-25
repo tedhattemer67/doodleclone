@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.3.1
+Stable tag: 2.3.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,14 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.3.2 =
+* Public form, notices and overview table use Source Sans Pro (400, 600,
+  700 loaded by the plugin from Google Fonts) at 16px, instead of the
+  theme's body font. Change it with the `--dcs-font` custom property.
+* Fixed: in narrow day cards the time wrapped onto a second line under
+  its checkbox. Checkbox and time now always share one line; cards are a
+  little wider (min 230px).
 
 = 2.3.1 =
 * Public page restyled. The plugin now ships its own stylesheet

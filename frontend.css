@@ -2,8 +2,9 @@
  * DCS Frontend Styles
  * Public meeting-event form, notices and the overview shortcode.
  *
- * Fonts are inherited from the theme. To re-colour, override the custom
- * properties below, e.g. in Appearance → Customize → Additional CSS:
+ * Typeface is Source Sans Pro (loaded by the plugin from Google Fonts).
+ * To re-colour or change the font, override the custom properties below,
+ * e.g. in Appearance → Customize → Additional CSS:
  *   .dcs-booking-form, .dcs-notice, .dcs-message { --dcs-accent: #7a1f5c; }
  */
 
@@ -26,6 +27,18 @@
     --dcs-error:         #b32d2e;
     --dcs-error-tint:    #fcf0f1;
     --dcs-radius:        8px;
+    --dcs-font:          "Source Sans Pro", "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+
+    font-family: var(--dcs-font);
+    font-size: 16px; /* the theme's root is 10px, so rem/em can't be relied on */
+    line-height: 1.5;
+}
+
+.dcs-booking-form input,
+.dcs-booking-form button,
+.dcs-booking-form h3,
+.dcs-booking-form legend {
+    font-family: var(--dcs-font);
 }
 
 /* -------------------------------------------------------------------------
@@ -57,7 +70,7 @@
 /* Day cards (polls and 1-on-1) */
 .dcs-booking-form .dcs-days {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
     gap: 12px;
     margin: 0 0 1.75em;
 }
@@ -150,11 +163,11 @@
 .dcs-booking-form .dcs-slots label,
 .dcs-booking-form .dcs-slots .dcs-slot-full {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap; /* checkbox and time always share one line */
     align-items: center;
-    gap: 4px 10px;
+    gap: 10px;
     margin: 0;
-    padding: 8px 10px;
+    padding: 9px 12px;
     border: 1px solid var(--dcs-border);
     border-radius: 6px;
     background: var(--dcs-surface);
@@ -196,6 +209,17 @@
 .dcs-booking-form .dcs-slot-time {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+
+/* Sessions labels carry the full date, so let them wrap beside the radio
+   on narrow screens; the badge stays right-aligned. */
+.dcs-booking-form .dcs-part .dcs-slot-time {
+    white-space: normal;
+}
+
+.dcs-booking-form .dcs-slots .dcs-badge {
+    flex: none;
+    margin-left: auto;
 }
 
 /* Full: greyed out, not clickable */
