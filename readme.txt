@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.3.2
+Stable tag: 2.3.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,14 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.3.3 =
+* Privacy: Source Sans Pro is now bundled with the plugin (`fonts/`,
+  latin + latin-ext, 400 / 400 italic / 600 / 700, SIL Open Font License)
+  instead of loaded from Google Fonts. 2.3.2 made every visitor to a
+  meeting page or `[doodle_schedule_overview]` page send their IP address
+  to Google, which EU courts have held to breach GDPR without consent.
+  The plugin again makes no third-party requests. The font looks the same.
 
 = 2.3.2 =
 * Public form, notices and overview table use Source Sans Pro (400, 600,
@@ -257,6 +265,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.3.3 =
+Privacy fix: stops the public pages loading the font from Google Fonts
+(visitor IPs were sent to Google since 2.3.2). Recommended for EU sites.
 
 = 2.0.5 =
 Security fixes: closes a vote/booking-hijack hole (anyone could overwrite

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Doodle Clone Scheduler
  * Description: A scheduling plugin for 1-on-1 or small group meetings with multiple time slots.
- * Version: 2.3.2
+ * Version: 2.3.3
  * Author: Ted Hattemer
  * Text Domain: doodle-clone-scheduler
  * Requires at least: 6.0
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'DCS_VERSION',    '2.3.2' );
+define( 'DCS_VERSION',    '2.3.3' );
 define( 'DCS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DCS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 

@@ -26,16 +26,9 @@ class DCS_Frontend {
 
     public static function enqueue_assets(): void {
         // Registered everywhere so the overview shortcode can enqueue it on
-        // whatever page it's placed on.
-        // Every weight the stylesheet uses; the theme's own Source Sans link
-        // is regular-only, which leaves bold text to faux-bold or fallback.
-        wp_register_style(
-            'dcs-source-sans',
-            'https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,400i,600,700&display=swap',
-            [],
-            null
-        );
-        wp_register_style( 'dcs-frontend', DCS_PLUGIN_URL . 'frontend.css', [ 'dcs-source-sans' ], DCS_VERSION );
+        // whatever page it's placed on. The font is bundled (fonts/, loaded
+        // via @font-face in frontend.css) — no third-party requests.
+        wp_register_style( 'dcs-frontend', DCS_PLUGIN_URL . 'frontend.css', [], DCS_VERSION );
         if ( ! is_singular( 'meeting_event' ) ) return;
         wp_enqueue_style( 'dcs-frontend' );
         wp_enqueue_script( 'jquery' );
