@@ -400,7 +400,7 @@ class DCS_Admin {
             echo '<tr' . $row_class . '>';
             echo '<td>' . esc_html( dcs_slot_range( $slot ) ) . '</td>';
             echo '<td>' . esc_html( dcs_format_duration( $dur_mins ) ?: '—' ) . '</td>';
-            echo '<td><span class="dcs-badge">' . count( $attendees ) . '</span></td>';
+            echo '<td><span class="dcs-badge">' . esc_html( self::votes_of_max( $slot ) ) . '</span></td>';
             echo '<td>' . ( $names ? implode( ', ', $names ) : '—' ) . '</td>';
             echo '</tr>';
         }
@@ -423,6 +423,13 @@ class DCS_Admin {
 
         // --- Voter roster with token status ---
         self::render_voter_roster( $post->ID, $slots );
+    }
+
+    /** Vote count for a poll slot, as "3 / 5" when the slot has a Max. */
+    private static function votes_of_max( array $slot ): string {
+        $votes = count( is_array( $slot['attendees'] ?? null ) ? $slot['attendees'] : [] );
+        $cap   = dcs_slot_capacity( $slot );
+        return $cap === null ? (string) $votes : $votes . ' / ' . $cap;
     }
 
     /**
@@ -610,7 +617,6 @@ class DCS_Admin {
             $s        = intval( $sl['start'] ?? 0 );
             $e        = intval( $sl['end'] ?? 0 );
             $dur_mins = intval( $sl['duration_minutes'] ?? 0 ) ?: ( $s && $e > $s ? intdiv( $e - $s, 60 ) : 0 );
-            $votes    = count( $sl['attendees'] ?? [] );
             $names    = implode( ', ', array_map(
                 fn( $a ) => esc_html( ( $a['name'] ?? '' ) ?: ( $a['email'] ?? '' ) ?: '—' ),
                 $sl['attendees'] ?? []
@@ -630,7 +636,7 @@ class DCS_Admin {
             printf( '<td><input type="radio" name="dcs_selected_slot_index" value="%d"%s></td>', $idx, $checked ? ' checked' : '' );
             echo '<td>' . esc_html( dcs_slot_range( $sl ) ) . '</td>';
             echo '<td>' . esc_html( dcs_format_duration( $dur_mins ) ?: '—' ) . '</td>';
-            echo '<td>' . intval( $votes ) . '</td>';
+            echo '<td>' . esc_html( self::votes_of_max( $sl ) ) . '</td>';
             echo '<td>' . ( $names ?: '—' ) . '</td>';
             echo '<td>' . ( $idx === $suggested_idx ? '<span class="dashicons dashicons-thumbs-up" title="Suggested"></span>' : '' ) . '</td>';
             echo '</tr>';
@@ -1214,9 +1220,9 @@ class DCS_Admin {
                     + '<label>Date:</label> <input type="date" name="slots['+i+'][date]" required><br>'
                     + '<label>Time:</label> <input type="time" name="slots['+i+'][time]" required>'
                     + '<label>Duration:</label> '+durationSelect('slots['+i+'][duration_minutes]','')+' <br>'
-                    // New Sessions slots start with no limit; 1-on-1 slots start at 1.
+                    // New Group poll and Sessions slots start with no limit; 1-on-1 slots start at 1.
                     + '<label>Max:</label>  <input type="number" name="slots['+i+'][max]" min="1" placeholder="No limit" style="width:7em;" value="'
-                    + ($('input[name="dcs_meeting_mode"]:checked').val() === 'sessions' ? '' : '1') + '">'
+                    + (($('input[name="dcs_meeting_mode"]:checked').val() || 'booking') === 'booking' ? '1' : '') + '">'
                     + $('#dcs-slot-part-tpl').html().replace(/__i__/g, i) + '<br>'
                     + '<div class="dcs-attendees">' + attendeeRow(i, 0, '', '') + '</div>'
                     + '<button type="button" class="dcs-add-att button">Add Attendee</button> '

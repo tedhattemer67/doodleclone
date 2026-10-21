@@ -231,7 +231,7 @@ ok( str_contains( $slots_box, 'name="slots[0][max]" value="" min="1" placeholder
 $close_box = render( fn() => DCS_Admin::render_close_poll_box( get_post( 530 ) ) );
 ok( str_contains( $close_box, '25 / no limit' ) && str_contains( $close_box, '0 / 3' ), 'close box shows "no limit"' );
 $foot = render( fn() => DCS_Admin::admin_footer_scripts() );
-ok( str_contains( $foot, "=== 'sessions' ? '' : '1'" ), 'new slots: blank Max for Sessions, 1 for 1-on-1' );
+ok( str_contains( $foot, "|| 'booking') === 'booking' ? '1' : ''" ), 'new slots: 1 for 1-on-1, blank Max for Sessions / poll' );
 
 // 1-on-1 with blank Max is unlimited too; with a number it still fills up
 make_event( 531, 'booking', 'Open booking' );

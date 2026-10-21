@@ -235,8 +235,8 @@ save_event( 200, [
     'dcs_save_details_nonce' => 'nonce-dcs_save_details_action',
     'dcs_details'            => [ 'format' => 'in_person', 'location' => 'Main Library, Room 2' ],
     'slots' => [
-        [ 'date' => $D1, 'time' => '10:00', 'duration_minutes' => '60', 'max' => '1', 'attendees' => [ [ 'name' => '', 'email' => '' ] ] ],
-        [ 'date' => $D1, 'time' => '13:00', 'duration_minutes' => '60', 'max' => '1', 'attendees' => [ [ 'name' => '', 'email' => '' ] ] ],
+        [ 'date' => $D1, 'time' => '10:00', 'duration_minutes' => '60', 'max' => '', 'attendees' => [ [ 'name' => '', 'email' => '' ] ] ],
+        [ 'date' => $D1, 'time' => '13:00', 'duration_minutes' => '60', 'max' => '', 'attendees' => [ [ 'name' => '', 'email' => '' ] ] ],
     ],
 ] );
 $ps = slots( 200 );

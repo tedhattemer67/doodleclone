@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.3.3
+Stable tag: 2.3.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,17 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.3.4 =
+* Fixed: a slot's Max was ignored on Group polls. Any number of people
+  could say yes to a time. Max now limits polls too: once a time has that
+  many "yes" votes it shows as Full and is disabled for new voters.
+  Someone who already said yes keeps that time when they edit. Limited
+  times show "N spots left". Poll results and the close box show
+  "votes / max".
+* New Group poll slots start with Max blank (no limit) instead of 1.
+* Upgrade: existing Group polls have Max cleared on every slot, so they
+  stay unlimited as before. Set a Max again where you want a limit.
 
 = 2.3.3 =
 * Privacy: Source Sans Pro is now bundled with the plugin (`fonts/`,
@@ -265,6 +276,9 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.3.4 =
+Max now limits Group polls. Existing polls are reset to no limit on upgrade.
 
 = 2.3.3 =
 Privacy fix: stops the public pages loading the font from Google Fonts

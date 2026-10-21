@@ -107,6 +107,42 @@ function dcs_slot_is_full( array $slot, int $taken ): bool {
 }
 
 /**
+ * One-time data upgrades, keyed on the 'dcs_db_version' option.
+ *
+ * 2.3.4: Max is now enforced on Group polls. Before that it was ignored there,
+ * yet every new poll slot was pre-filled with Max 1 — so clear Max on all
+ * existing polls (they stay unlimited, as they always effectively were).
+ */
+function dcs_maybe_upgrade(): void {
+    if ( version_compare( (string) get_option( 'dcs_db_version', '0' ), '2.3.4', '>=' ) ) return;
+
+    $events = get_posts( [
+        'post_type'   => 'meeting_event',
+        'post_status' => [ 'publish', 'future', 'draft', 'pending', 'private', 'trash' ],
+        'numberposts' => -1,
+    ] );
+    foreach ( $events as $event ) {
+        $mode = get_post_meta( $event->ID, '_meeting_mode', true );
+        if ( ! in_array( $mode, [ 'poll', 'group' ], true ) ) continue;
+
+        // Same lock as poll votes, so a vote arriving mid-upgrade isn't lost.
+        $done = dcs_with_lock( 'poll_' . $event->ID, function () use ( $event ) {
+            wp_cache_delete( $event->ID, 'post_meta' );
+            $slots = get_post_meta( $event->ID, '_meeting_slots', true );
+            if ( ! is_array( $slots ) ) return true;
+            foreach ( $slots as $i => $slot ) {
+                if ( is_array( $slot ) ) $slots[ $i ]['max'] = 0;
+            }
+            update_post_meta( $event->ID, '_meeting_slots', $slots );
+            return true;
+        } );
+        if ( is_wp_error( $done ) ) return; // busy — try again on the next request
+    }
+
+    update_option( 'dcs_db_version', '2.3.4' );
+}
+
+/**
  * Formats a timestamp range in the plugin timezone.
  * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm ET"
  */

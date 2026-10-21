@@ -149,7 +149,20 @@ class DCS_Ajax {
                     && strtolower( $token['email'] ) === $email_lower;
 
                 if ( ! $authorized ) {
-                    return [ 'ok' => false, 'error' => __( 'This email address already has a response on file. Please use the edit link that was emailed to you to change your selections.', 'doodle-clone-scheduler' ) ];
+                    return [ 'ok' => false, 'code' => 403, 'error' => __( 'This email address already has a response on file. Please use the edit link that was emailed to you to change your selections.', 'doodle-clone-scheduler' ) ];
+                }
+            }
+
+            // Capacity: a time with a Max takes only that many "yes" votes. A
+            // time this voter already holds always counts as theirs, so an
+            // edit never loses it to "full" (same rule as Sessions).
+            foreach ( $slots as $slot ) {
+                if ( ! in_array( dcs_slot_key( $slot ), $selected_keys, true ) ) continue;
+                $att    = is_array( $slot['attendees'] ?? null ) ? $slot['attendees'] : [];
+                $others = array_filter( $att, fn( $a ) => strtolower( $a['email'] ?? '' ) !== $email_lower );
+                if ( count( $others ) < count( $att ) ) continue;
+                if ( dcs_slot_is_full( $slot, count( $others ) ) ) {
+                    return [ 'ok' => false, 'error' => sprintf( __( 'Sorry, %s is already full. Please untick it and submit again.', 'doodle-clone-scheduler' ), dcs_slot_range( $slot ) ) ];
                 }
             }
 
@@ -187,7 +200,7 @@ class DCS_Ajax {
             wp_send_json_error( $result->get_error_message() );
         }
         if ( empty( $result['ok'] ) ) {
-            wp_send_json_error( $result['error'], 403 );
+            wp_send_json_error( $result['error'], $result['code'] ?? null );
         }
 
         $is_update = $result['is_update'];

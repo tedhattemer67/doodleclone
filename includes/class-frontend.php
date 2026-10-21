@@ -547,19 +547,34 @@ class DCS_Frontend {
         $label     = '<span class="dcs-slot-time">' . esc_html( dcs_slot_time_range( $slot ) ) . '</span>';
         $value     = esc_attr( dcs_slot_key( $slot ) );
         $attendees = $slot['attendees'] ?? [];
-        $full      = ! $is_poll && dcs_slot_is_full( $slot, count( (array) $attendees ) );
+        $taken     = count( (array) $attendees );
+        $mine      = $is_poll && in_array( dcs_slot_key( $slot ), $prefill['slot_keys'], true );
+        $full      = dcs_slot_is_full( $slot, $taken );
+        $full_tag  = ' <span class="dcs-badge dcs-badge--full">' . esc_html__( 'Full', 'doodle-clone-scheduler' ) . '</span>';
 
         echo '<li>';
-        if ( $full ) {
-            echo '<span class="dcs-slot-full">' . $label . ' <span class="dcs-badge dcs-badge--full">' . esc_html__( 'Full', 'doodle-clone-scheduler' ) . '</span></span>';
-        } elseif ( $is_poll ) {
-            $checked = in_array( dcs_slot_key( $slot ), $prefill['slot_keys'], true ) ? ' checked' : '';
+        if ( $is_poll ) {
+            // A full time stays ticked and enabled for a voter who already
+            // holds it (editing via their link); everyone else sees it disabled.
+            // Limited times show places left; unlimited ones show nothing.
+            $cap  = dcs_slot_capacity( $slot );
+            $note = '';
+            if ( $full && ! $mine ) {
+                $note = $full_tag;
+            } elseif ( $cap !== null && ! $mine ) {
+                $left = $cap - $taken;
+                $note = ' <span class="dcs-badge dcs-spots">' . esc_html( sprintf( _n( '%d spot left', '%d spots left', $left, 'doodle-clone-scheduler' ), $left ) ) . '</span>';
+            }
             printf(
-                '<label><input type="checkbox" name="slot_ids[]" value="%s"%s> %s</label>',
+                '<label%s><input type="checkbox" name="slot_ids[]" value="%s"%s> %s%s</label>',
+                $full && ! $mine ? ' class="dcs-slot-full"' : '',
                 $value,
-                $checked,
-                $label
+                $mine ? ' checked' : ( $full ? ' disabled' : '' ),
+                $label,
+                $note
             );
+        } elseif ( $full ) {
+            echo '<span class="dcs-slot-full">' . $label . $full_tag . '</span>';
         } else {
             printf(
                 '<label><input type="radio" name="slot_id" value="%s" required> %s</label>',
