@@ -120,19 +120,7 @@ class DCS_Mailer {
             set_transient( $rate_key, 1, 60 );
         }
 
-        $slots  = get_post_meta( $event_id, '_meeting_slots', true );
-        $groups = dcs_group_slots_by_part( dcs_get_parts( $event_id ), is_array( $slots ) ? $slots : [] );
-        $keys   = array_map( 'dcs_slot_key', $chosen );
-
-        $lines = [];
-        foreach ( $groups as $gi => $g ) {
-            $pick = null;
-            foreach ( $g['slots'] as $sl ) {
-                if ( in_array( dcs_slot_key( $sl ), $keys, true ) ) { $pick = $sl; break; }
-            }
-            $when   = $pick ? dcs_slot_range( $pick ) : __( 'not attending', 'doodle-clone-scheduler' );
-            $lines[] = count( $groups ) > 1 ? '- ' . dcs_part_label( $g, $gi ) . ': ' . $when : '- ' . $when;
-        }
+        $lines = self::sessions_schedule_lines( $event_id, $chosen );
 
         $token = dcs_make_edit_token( $event_id, $email );
         $link  = add_query_arg( 'dcs_token', rawurlencode( $token ), get_permalink( $event_id ) );
@@ -154,6 +142,62 @@ class DCS_Mailer {
         );
 
         wp_mail( $email, $subject, $body, self::plain_headers() );
+    }
+
+    /**
+     * One "- Part: time" line per part (or "not attending"), in part order.
+     * The "Part:" prefix is left off when the event has a single part.
+     */
+    private static function sessions_schedule_lines( int $event_id, array $chosen ): array {
+        $slots  = get_post_meta( $event_id, '_meeting_slots', true );
+        $groups = dcs_group_slots_by_part( dcs_get_parts( $event_id ), is_array( $slots ) ? $slots : [] );
+        $keys   = array_map( 'dcs_slot_key', $chosen );
+
+        $lines = [];
+        foreach ( $groups as $gi => $g ) {
+            $pick = null;
+            foreach ( $g['slots'] as $sl ) {
+                if ( in_array( dcs_slot_key( $sl ), $keys, true ) ) { $pick = $sl; break; }
+            }
+            $when    = $pick ? dcs_slot_range( $pick ) : __( 'not attending', 'doodle-clone-scheduler' );
+            $lines[] = count( $groups ) > 1 ? '- ' . dcs_part_label( $g, $gi ) . ': ' . $when : '- ' . $when;
+        }
+        return $lines;
+    }
+
+    /**
+     * Tells the event's organiser that someone new has responded to a Group
+     * poll or signed up for Sessions. Sent only for a person's first response
+     * on the event, not for later edits through their edit link — the
+     * organiser sees changes in the event's results/roster.
+     *
+     * @param string $mode    'poll' or 'sessions'.
+     * @param array  $chosen  The slots this person picked.
+     */
+    public static function send_new_response_notice( int $event_id, string $name, string $email, string $mode, array $chosen ): void {
+        $title = html_entity_decode( get_the_title( $event_id ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+        if ( $mode === 'sessions' ) {
+            $intro = sprintf( __( '%1$s (%2$s) registered for:', 'doodle-clone-scheduler' ), $name, $email );
+            $lines = self::sessions_schedule_lines( $event_id, $chosen );
+        } else {
+            $intro = sprintf( __( '%1$s (%2$s) is available for:', 'doodle-clone-scheduler' ), $name, $email );
+            usort( $chosen, fn( $a, $b ) => dcs_slot_times( $a )[0] <=> dcs_slot_times( $b )[0] );
+            $lines = array_map( fn( $s ) => '- ' . dcs_slot_range( $s ), $chosen );
+        }
+
+        // Plain admin URL rather than get_edit_post_link(): this runs during
+        // a visitor's AJAX request, where that function returns nothing.
+        $body = $intro . "\n" . implode( "\n", $lines ) . "\n\n"
+            . __( 'See all responses:', 'doodle-clone-scheduler' ) . "\n"
+            . admin_url( 'post.php?post=' . $event_id . '&action=edit' );
+
+        wp_mail(
+            dcs_event_organiser_email( $event_id ),
+            sprintf( __( 'New response: %s', 'doodle-clone-scheduler' ), $title ),
+            $body,
+            self::plain_headers()
+        );
     }
 
     /**

@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.4.1
+- **Version:** 2.4.2
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -252,7 +252,10 @@ A blank field means "use the level above". One rule matters here:
   missing a join link. Sessions events with several parts also show a **"Who
   is attending each part"** grid.
 - The event's owner gets an **email for each 1-on-1 booking** ("New
-  booking: …"). See [Email](#email) for who that is.
+  booking: …"), and one when **someone new votes in a poll or signs up for
+  Sessions** ("New response: …", listing their picks and linking to the
+  event). Later edits through a person's edit link don't send another. See
+  [Email](#email) for who the owner is.
 
 ### Closing and sending final details
 
@@ -340,7 +343,9 @@ you voted for, with the chosen time highlighted.
 | 1-on-1 booking | Attendee | Confirmed time, `.ics` (no meeting details yet) |
 | 1-on-1 booking | Event owner | Who booked which slot |
 | Poll vote (new or edited) | Voter | Confirmation + 30-day edit link |
+| Poll vote (first from that email) | Event owner | "New response": who, and the times they picked |
 | Sessions sign-up (new or edited) | Attendee | Their schedule per part (incl. skipped) + edit link. No details or `.ics` yet. |
+| Sessions sign-up (first from that email) | Event owner | "New response": who, and their schedule per part |
 | Organiser clicks **Send** | Each voter/attendee | HTML email: time(s), full meeting details, Google Calendar link, `.ics` per slot |
 | Organiser clicks **Send** | Event owner | Summary of who was emailed |
 

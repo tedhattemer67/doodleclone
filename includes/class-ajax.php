@@ -193,7 +193,11 @@ class DCS_Ajax {
             // this email now has a publicly issued token.
             update_post_meta( $event_id, $issued_key, time() );
 
-            return [ 'ok' => true, 'is_update' => $is_update ];
+            $chosen = array_values( array_filter( $slots, fn( $s ) => in_array( dcs_slot_key( $s ), $selected_keys, true ) ) );
+
+            // First public submission from this email (no edit link issued
+            // before) — the organiser is told about these, not about edits.
+            return [ 'ok' => true, 'is_update' => $is_update, 'is_new' => ! $token_issued, 'chosen' => $chosen ];
         } );
 
         if ( is_wp_error( $result ) ) {
@@ -207,6 +211,9 @@ class DCS_Ajax {
 
         // Send confirmation — bypass rate-limit on edits so they always get a fresh link
         DCS_Mailer::send_poll_confirmation( $event_id, $name, $email, $is_update );
+        if ( $result['is_new'] ) {
+            DCS_Mailer::send_new_response_notice( $event_id, $name, $email, 'poll', $result['chosen'] );
+        }
 
         // Return a fresh token in the response so the JS can update the page URL,
         // keeping the voter in their edit-link context without a full redirect.
@@ -267,11 +274,12 @@ class DCS_Ajax {
                     if ( $is_mine( $a ) ) $held[ $key ] = true;
                 }
             }
-            $is_update = (bool) $held;
+            $is_update    = (bool) $held;
+            $token_issued = (bool) get_post_meta( $event_id, $issued_key, true );
 
             // Security: same rule as poll votes — once an edit link has been
             // issued for this email, only its holder can change the picks.
-            if ( get_post_meta( $event_id, $issued_key, true ) ) {
+            if ( $token_issued ) {
                 $token      = $edit_token ? dcs_parse_edit_token( $edit_token ) : false;
                 $authorized = $token
                     && intval( $token['event_id'] ) === $event_id
@@ -330,7 +338,8 @@ class DCS_Ajax {
             update_post_meta( $event_id, '_meeting_slots', $slots );
             update_post_meta( $event_id, $issued_key, time() );
 
-            return [ 'ok' => true, 'is_update' => $is_update, 'chosen' => $chosen ];
+            // is_new: first public submission from this email (see poll votes).
+            return [ 'ok' => true, 'is_update' => $is_update, 'is_new' => ! $token_issued, 'chosen' => $chosen ];
         } );
 
         if ( is_wp_error( $result ) ) {
@@ -341,6 +350,9 @@ class DCS_Ajax {
         }
 
         DCS_Mailer::send_sessions_confirmation( $event_id, $name, $email, $result['chosen'], $result['is_update'] );
+        if ( $result['is_new'] ) {
+            DCS_Mailer::send_new_response_notice( $event_id, $name, $email, 'sessions', $result['chosen'] );
+        }
 
         wp_send_json_success( [
             'mode'      => 'sessions',

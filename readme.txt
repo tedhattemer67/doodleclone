@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.1
+Stable tag: 2.4.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,14 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.2 =
+* New: the event's owner gets a "New response: <event>" email when someone
+  votes in a Group poll or signs up for Sessions for the first time. It
+  says who responded, lists their times (per part for Sessions), and links
+  to the event's results. Previously only 1-on-1 bookings notified the
+  organiser.
+* Edits made through a person's edit link don't send another notice.
 
 = 2.4.1 =
 * Organiser emails now go to the event's owner (its Author) instead of
@@ -310,6 +318,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.2 =
+Organisers are now emailed when someone new responds to a poll or signs up
+for Sessions.
 
 = 2.4.1 =
 Booking notifications and send summaries now go to each event's owner, not
