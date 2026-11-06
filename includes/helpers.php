@@ -144,7 +144,8 @@ function dcs_maybe_upgrade(): void {
 
 /**
  * Formats a timestamp range in the plugin timezone.
- * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm ET"
+ * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm EST". The zone
+ * abbreviation is the one in effect on the slot's own date, not today's.
  */
 function dcs_format_range( int $start, int $end = 0 ): string {
     if ( $start <= 0 ) return '—';
@@ -155,8 +156,7 @@ function dcs_format_range( int $start, int $end = 0 ): string {
             $e_dt = ( new DateTimeImmutable( '@' . $end ) )->setTimezone( dcs_tz() );
             $label .= ' – ' . $e_dt->format( 'g:ia' );
         }
-        $abbr = ( new DateTime( 'now', dcs_tz() ) )->format( 'T' ); // EDT or EST
-        return $label . ' ' . $abbr;
+        return $label . ' ' . $s_dt->format( 'T' ); // EDT or EST on the slot's date
     } catch ( Throwable $ex ) {
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
             error_log( '[DCS] dcs_format_range error: ' . $ex->getMessage() );

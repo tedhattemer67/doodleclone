@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.3.4
+- **Version:** 2.3.5
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 

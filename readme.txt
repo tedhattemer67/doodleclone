@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.3.4
+Stable tag: 2.3.5
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,13 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.3.5 =
+* Fixed: full meeting dates and times (in emails, admin screens and
+  on-page confirmations) were labelled EDT or EST by today's date instead of the meeting's date. An
+  email sent in winter for a meeting after the spring clock change said
+  EST when the meeting is in EDT (and the reverse in autumn). The times
+  themselves were always correct; only the label was wrong.
 
 = 2.3.4 =
 * Fixed: a slot's Max was ignored on Group polls. Any number of people
