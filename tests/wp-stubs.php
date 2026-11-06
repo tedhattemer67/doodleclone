@@ -75,6 +75,9 @@ function checked( $a, $b, $echo = true ) { $r = ( (string) $a === (string) $b ) 
 function wp_json_encode( $d ) { return json_encode( $d ); }
 function apply_filters( $h, $v ) { return $v; }
 function add_action() {} function add_filter() {} function add_shortcode() {} function add_meta_box() {}
+function register_post_type( $type, $args ) { $GLOBALS['_post_types'][ $type ] = $args; }
+function remove_menu_page( $slug ) { $GLOBALS['_removed_menus'][] = $slug; }
+function untrailingslashit( $s ) { return rtrim( (string) $s, '/\\' ); }
 function antispambot( $e ) { return $e; }
 function plugin_dir_path( $f ) { return dirname( $f ) . '/'; }
 function plugin_dir_url( $f ) { return 'https://example.com/wp-content/plugins/dcs/'; }
@@ -84,7 +87,50 @@ function wp_create_nonce( $a ) { return 'nonce-' . $a; }
 function wp_verify_nonce( $n, $a ) { return $n === 'nonce-' . $a ? 1 : false; }
 function wp_nonce_field( $a, $n, $ref = true, $echo = true ) { $h = '<input type="hidden" name="' . $n . '" value="nonce-' . $a . '">'; if ( $echo ) echo $h; return $h; }
 function check_ajax_referer( $a, $k, $die = true ) { return ( $_POST[ $k ] ?? '' ) === 'nonce-' . $a; }
-function current_user_can() { return $GLOBALS['_can'] ?? true; }
+// Set $GLOBALS['_user_caps'] (cap => true) to test specific capabilities;
+// otherwise every check returns $GLOBALS['_can'] (default true).
+function current_user_can( $cap = '', ...$args ) {
+    if ( isset( $GLOBALS['_user_caps'] ) ) return ! empty( $GLOBALS['_user_caps'][ $cap ] );
+    return $GLOBALS['_can'] ?? true;
+}
+function user_can( $user, $cap ) {
+    foreach ( (array) $user->roles as $r ) if ( isset( $GLOBALS['_roles'][ $r ] ) && $GLOBALS['_roles'][ $r ]->has_cap( $cap ) ) return true;
+    return false;
+}
+
+// Roles / users
+class WP_Role {
+    public $name; public $capabilities;
+    function __construct( $name, array $caps ) { $this->name = $name; $this->capabilities = $caps; }
+    function has_cap( $c ) { return ! empty( $this->capabilities[ $c ] ); }
+    function add_cap( $c, $grant = true ) { $this->capabilities[ $c ] = $grant; }
+}
+class WP_User {
+    public $ID; public $roles;
+    function __construct( $id, array $roles ) { $this->ID = $id; $this->roles = $roles; }
+}
+function _dcs_test_reset_roles() {
+    $caps = fn( ...$c ) => array_fill_keys( $c, true );
+    $author = [ 'read', 'edit_posts', 'edit_published_posts', 'publish_posts', 'delete_posts', 'delete_published_posts', 'upload_files' ];
+    $editor = array_merge( $author, [ 'edit_others_posts', 'edit_private_posts', 'read_private_posts', 'delete_others_posts', 'delete_private_posts', 'moderate_comments' ] );
+    $GLOBALS['_roles'] = [
+        'administrator' => new WP_Role( 'administrator', $caps( ...$editor, ...[ 'manage_options' ] ) ),
+        'editor'        => new WP_Role( 'editor', $caps( ...$editor ) ),
+        'author'        => new WP_Role( 'author', $caps( ...$author ) ),
+        'contributor'   => new WP_Role( 'contributor', $caps( 'read', 'edit_posts', 'delete_posts' ) ),
+        'subscriber'    => new WP_Role( 'subscriber', $caps( 'read' ) ),
+    ];
+}
+_dcs_test_reset_roles();
+function wp_roles() { return (object) [ 'role_objects' => $GLOBALS['_roles'] ]; }
+function get_role( $r ) { return $GLOBALS['_roles'][ $r ] ?? null; }
+function add_role( $r, $label, $caps ) {
+    if ( isset( $GLOBALS['_roles'][ $r ] ) ) return null;
+    return $GLOBALS['_roles'][ $r ] = new WP_Role( $r, $caps );
+}
+function wp_get_current_user() { return new WP_User( $GLOBALS['_user_id'] ?? 1, $GLOBALS['_user_roles'] ?? [ 'administrator' ] ); }
+function get_current_user_id() { return $GLOBALS['_user_id'] ?? 1; }
+function is_admin() { return $GLOBALS['_is_admin'] ?? true; }
 function wp_is_post_revision() { return false; }
 
 // Posts / URLs

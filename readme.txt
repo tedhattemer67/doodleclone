@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.3.5
+Stable tag: 2.4.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,22 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.0 =
+* New "Meeting Organiser" user role. Organisers can create, edit, publish,
+  close, send final details for, and delete their own Meeting Events, and
+  nothing else: no posts, pages, media or comments. They can't see or
+  edit other organisers' events.
+* Organisers get a simpler wp-admin: no Dashboard (they land on their
+  Meeting Events list after logging in) and a trimmed toolbar.
+* The Meeting Events list shows only your own events unless you can edit
+  other people's (Administrators and Editors still see all). This also
+  applies to Authors.
+* Meeting Events now have an Author box, so Administrators and Editors can
+  hand an event to an organiser.
+* Meeting Events use their own capabilities (edit_meeting_events, …)
+  instead of the blog-post ones. On upgrade every existing role gets the
+  matching Meeting Event capabilities, so nobody's access changes.
 
 = 2.3.5 =
 * Fixed: full meeting dates and times (in emails, admin screens and
@@ -283,6 +299,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.0 =
+Adds a Meeting Organiser role. Existing events stay with the user who created
+them; use the new Author box to hand one to an organiser.
 
 = 2.3.4 =
 Max now limits Group polls. Existing polls are reset to no limit on upgrade.

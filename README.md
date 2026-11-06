@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.3.5
+- **Version:** 2.4.0
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -16,6 +16,7 @@ and visitors' browsers make no third-party requests.
 - [Meeting types at a glance](#meeting-types-at-a-glance)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Meeting Organiser role](#meeting-organiser-role)
 - [For organisers](#for-organisers-wp-admin)
   - [Creating a Meeting Event](#creating-a-meeting-event)
   - [Slots and capacity (Max)](#slots-and-capacity-max)
@@ -93,6 +94,46 @@ All mail goes through `wp_mail()`, so it uses whatever mailer your site already
 has (an SMTP plugin is strongly recommended for deliverability). The
 **organiser address** used in notifications and "contact the organiser"
 messages is the site's **Administration Email Address** (Settings → General).
+
+---
+
+## Meeting Organiser role
+
+To let someone run meetings without giving them access to the rest of the
+site, give them the **Meeting Organiser** role (Users → Add New, or edit an
+existing user).
+
+| | Meeting Organiser | Author | Editor / Administrator |
+|---|---|---|---|
+| Create, edit, publish and delete **own** events | ✓ | ✓ | ✓ |
+| Close events and send final details | own | own | all |
+| See and edit **other people's** events | | | ✓ |
+| Posts, pages, media, comments | | own posts and media | ✓ |
+
+What organisers see in wp-admin:
+
+- No Dashboard. Logging in, or opening wp-admin, takes them straight to
+  **Meeting Events**. The toolbar loses the WordPress and comments menus.
+- The **Meeting Events** list shows only their own events. The
+  All / Published / Draft counts are hidden, since those count everyone's.
+- Everything inside an event (slots, details, results, Close & Send) works
+  exactly as described below.
+
+**Giving an event to an organiser.** An event belongs to its **Author**. Events
+organisers create are theirs automatically. To hand over an existing event,
+an Administrator or Editor opens it and picks the organiser in the **Author**
+box. Events created before 2.4.0 belong to whoever created them.
+
+Anyone who can't edit other people's events (organisers and Authors) sees only
+their own in the list. A user who holds the organiser role *and* can edit blog
+posts (for example, also an Editor) keeps the normal wp-admin.
+
+> **Capabilities.** Meeting Events use their own capabilities
+> (`edit_meeting_events`, `edit_others_meeting_events`,
+> `publish_meeting_events`, …) instead of the blog-post ones. When upgrading to
+> 2.4.0, every role receives the Meeting Event version of each post capability
+> it already had, so existing access is unchanged. Role-editor plugins show
+> them under the `meeting_event` names.
 
 ---
 
@@ -388,6 +429,7 @@ The public form submits to `admin-ajax.php?action=dcs_book_slot`.
 ```
 doodle-clone-scheduler.php   bootstrap, constants
 includes/helpers.php         timezone, slots, details, ICS, tokens, locks
+includes/class-roles.php     Meeting Organiser role, own-events-only list, simplified admin
 includes/class-admin.php     post type, meta boxes, save handlers
 includes/class-frontend.php  public form, notices, shortcode
 includes/class-ajax.php      dcs_book_slot endpoint (book / vote / sign up)
@@ -403,6 +445,8 @@ The tests run on plain PHP 8 CLI. You don't need WordPress or a database:
 php tests/test-meeting-details.php
 php tests/test-sessions.php
 php tests/test-poll-capacity.php
+php tests/test-format-range.php
+php tests/test-organizer-role.php
 ```
 
 Each prints `N passed, M failed`.
@@ -416,7 +460,9 @@ changelog in `readme.txt`, then tag the commit (`vX.Y.Z`).
 ## Uninstalling
 
 Deactivating or deleting the plugin **leaves all Meeting Events and their data
-in place**, so a delete-and-reinstall upgrade is safe. To remove the content,
+in place**, so a delete-and-reinstall upgrade is safe. The **Meeting Organiser**
+role and the Meeting Event capabilities also stay. Remove the role with a
+role-editor plugin if you no longer want it. To remove the content,
 delete the Meeting Events yourself (Meeting Events → All → Trash → Empty
 Trash).
 

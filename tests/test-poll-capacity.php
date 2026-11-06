@@ -97,7 +97,7 @@ dcs_maybe_upgrade();
 ok( dcs_slot_capacity( slots( 700 )[0] ) === null && dcs_slot_capacity( slots( 700 )[1] ) === null, 'old poll slots (Max 1, and no Max at all) become unlimited' );
 ok( count( slots( 700 )[0]['attendees'] ) === 2, '...votes kept' );
 ok( slots( 701 )[0]['max'] === 1 && slots( 702 )[0]['max'] === 4, '1-on-1 and Sessions Max untouched' );
-ok( get_option( 'dcs_db_version' ) === '2.3.4', 'upgrade recorded' );
+ok( get_option( 'dcs_db_version' ) === '2.4.0', 'upgrade recorded (through 2.4.0)' );
 $s = slots( 700 ); $s[0]['max'] = 1; update_post_meta( 700, '_meeting_slots', $s );
 dcs_maybe_upgrade();
 ok( slots( 700 )[0]['max'] === 1, 'runs only once: a Max set after upgrading is kept' );

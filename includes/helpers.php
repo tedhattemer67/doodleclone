@@ -112,10 +112,28 @@ function dcs_slot_is_full( array $slot, int $taken ): bool {
  * 2.3.4: Max is now enforced on Group polls. Before that it was ignored there,
  * yet every new poll slot was pre-filled with Max 1 — so clear Max on all
  * existing polls (they stay unlimited, as they always effectively were).
+ *
+ * 2.4.0: Meeting Events use their own capabilities. Grant them to existing
+ * roles and create the Meeting Organiser role (DCS_Roles::install()).
  */
 function dcs_maybe_upgrade(): void {
-    if ( version_compare( (string) get_option( 'dcs_db_version', '0' ), '2.3.4', '>=' ) ) return;
+    $version = (string) get_option( 'dcs_db_version', '0' );
+    if ( version_compare( $version, '2.4.0', '>=' ) ) return;
 
+    // Roles first, and on every attempt: until this has run, nobody (not even
+    // administrators) holds the meeting-event capabilities, so a busy 2.3.4
+    // step below must never hold it back. It is idempotent.
+    DCS_Roles::install();
+
+    if ( version_compare( $version, '2.3.4', '<' ) ) {
+        if ( ! dcs_upgrade_2_3_4() ) return; // busy — try again on the next request
+    }
+
+    update_option( 'dcs_db_version', '2.4.0' );
+}
+
+/** 2.3.4 step of dcs_maybe_upgrade(). False if a poll was locked; retry later. */
+function dcs_upgrade_2_3_4(): bool {
     $events = get_posts( [
         'post_type'   => 'meeting_event',
         'post_status' => [ 'publish', 'future', 'draft', 'pending', 'private', 'trash' ],
@@ -136,10 +154,10 @@ function dcs_maybe_upgrade(): void {
             update_post_meta( $event->ID, '_meeting_slots', $slots );
             return true;
         } );
-        if ( is_wp_error( $done ) ) return; // busy — try again on the next request
+        if ( is_wp_error( $done ) ) return false;
     }
-
     update_option( 'dcs_db_version', '2.3.4' );
+    return true;
 }
 
 /**

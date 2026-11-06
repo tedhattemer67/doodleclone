@@ -63,8 +63,13 @@ class DCS_Admin {
             'public'      => true,
             'has_archive' => true,
             'rewrite'     => [ 'slug' => 'meeting_event' ],
-            'supports'    => [ 'title', 'editor' ],
+            // 'author' lets admins hand an event to a Meeting Organiser.
+            'supports'    => [ 'title', 'editor', 'author' ],
             'menu_icon'   => 'dashicons-calendar-alt',
+            // Own capabilities (edit_meeting_events, …) so organisers can run
+            // meetings without blog-post access. See DCS_Roles.
+            'capability_type' => [ 'meeting_event', 'meeting_events' ],
+            'map_meta_cap'    => true,
         ] );
     }
 
