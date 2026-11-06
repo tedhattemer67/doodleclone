@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.4.0
+- **Version:** 2.4.1
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -91,9 +91,16 @@ change.
 ### Email
 
 All mail goes through `wp_mail()`, so it uses whatever mailer your site already
-has (an SMTP plugin is strongly recommended for deliverability). The
-**organiser address** used in notifications and "contact the organiser"
-messages is the site's **Administration Email Address** (Settings → General).
+has (an SMTP plugin is strongly recommended for deliverability).
+
+The **organiser address** for an event is the account email of the event's
+**Author** (its owner). Organiser notifications go there, and "contact the
+organiser" messages shown to attendees use it. If the event has no author,
+the author's account has been deleted, or its email is invalid, the site's
+**Administration Email Address** (Settings → General) is used instead.
+
+To route these somewhere else (for example, always copy a shared inbox),
+filter `dcs_organiser_email`. See [Developer hooks](#developer-hooks).
 
 ---
 
@@ -244,8 +251,8 @@ A blank field means "use the level above". One rule matters here:
   shows **NO LINK** in red if it is online/hybrid, has attendees, and is
   missing a join link. Sessions events with several parts also show a **"Who
   is attending each part"** grid.
-- You get an **email for each 1-on-1 booking** ("New booking: …") at the site
-  admin address.
+- The event's owner gets an **email for each 1-on-1 booking** ("New
+  booking: …"). See [Email](#email) for who that is.
 
 ### Closing and sending final details
 
@@ -331,11 +338,14 @@ you voted for, with the chosen time highlighted.
 | When | To | Contains |
 |---|---|---|
 | 1-on-1 booking | Attendee | Confirmed time, `.ics` (no meeting details yet) |
-| 1-on-1 booking | Site admin | Who booked which slot |
+| 1-on-1 booking | Event owner | Who booked which slot |
 | Poll vote (new or edited) | Voter | Confirmation + 30-day edit link |
 | Sessions sign-up (new or edited) | Attendee | Their schedule per part (incl. skipped) + edit link. No details or `.ics` yet. |
 | Organiser clicks **Send** | Each voter/attendee | HTML email: time(s), full meeting details, Google Calendar link, `.ics` per slot |
-| Organiser clicks **Send** | Site admin | Summary of who was emailed |
+| Organiser clicks **Send** | Event owner | Summary of who was emailed |
+
+"Event owner" is the event's Author, or the site admin email if it has none
+(see [Email](#email)).
 
 First-time poll and Sessions confirmations are throttled to one per address per
 minute. Edits always send a fresh link.
@@ -377,6 +387,7 @@ All variables: `--dcs-accent`, `--dcs-accent-hover`, `--dcs-accent-tint`,
 | Hook | Type | Default | Purpose |
 |---|---|---|---|
 | `dcs_booking_past_grace` | filter (int, seconds) | `900` (15 min) | How long after a slot starts it can still be booked (1-on-1 and Sessions). |
+| `dcs_organiser_email` | filter (string, `$post_id`) | Event author's email, else site admin email | Where organiser notifications for an event go, and the address in "contact the organiser" messages. Return a comma-separated list to notify several people. |
 | `dcs_client_ip` | filter (string) | `$_SERVER['REMOTE_ADDR']` | Client IP used for rate limiting. Override only to read a header **your** proxy/CDN sets and that clients can't spoof. |
 
 ```php
@@ -447,6 +458,7 @@ php tests/test-sessions.php
 php tests/test-poll-capacity.php
 php tests/test-format-range.php
 php tests/test-organizer-role.php
+php tests/test-organiser-email.php
 ```
 
 Each prints `N passed, M failed`.

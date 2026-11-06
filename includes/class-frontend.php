@@ -83,7 +83,7 @@ class DCS_Frontend {
             $raw    = sanitize_text_field( $_GET['dcs_token'] );
             $result = dcs_decode_edit_token( $raw );
             if ( $result['state'] === 'expired' && intval( $result['data']['event_id'] ) === $post_id ) {
-                $notice = self::render_expired_token_notice();
+                $notice = self::render_expired_token_notice( $post_id );
                 $blank  = [ 'email' => '', 'name' => '', 'slot_keys' => [] ];
                 return $content . $notice . ( dcs_is_sessions_mode( $mode )
                     ? self::render_sessions_form( $post_id, $slots, $blank )
@@ -148,14 +148,14 @@ class DCS_Frontend {
 
             // Expired token — show a clear explanation rather than a blank section
             if ( $voter['expired'] ) {
-                $admin_email = antispambot( get_option( 'admin_email' ) );
+                $organiser_email = antispambot( dcs_event_organiser_email( $post_id ) );
                 echo '<p class="dcs-muted">'
                     . esc_html__( 'The edit link you used has expired (links are valid for 30 days).', 'doodle-clone-scheduler' )
                     . ' '
                     . sprintf(
-                        /* translators: %s: admin email address */
+                        /* translators: %s: organiser email address */
                         esc_html__( 'If you need to verify your selections, please contact %s.', 'doodle-clone-scheduler' ),
-                        '<a href="mailto:' . esc_attr( $admin_email ) . '">' . esc_html( $admin_email ) . '</a>'
+                        '<a href="mailto:' . esc_attr( $organiser_email ) . '">' . esc_html( $organiser_email ) . '</a>'
                     )
                     . '</p>';
                 echo '</div>';
@@ -265,16 +265,16 @@ class DCS_Frontend {
     // Expired token notice (open poll)
     // -------------------------------------------------------------------------
 
-    private static function render_expired_token_notice(): string {
-        $admin_email = antispambot( get_option( 'admin_email' ) );
+    private static function render_expired_token_notice( int $post_id ): string {
+        $organiser_email = antispambot( dcs_event_organiser_email( $post_id ) );
         return '<div class="dcs-notice dcs-notice--warning dcs-token-expired" role="status">'
             . '<strong>' . esc_html__( 'Your edit link has expired.', 'doodle-clone-scheduler' ) . '</strong> '
             . esc_html__( 'Edit links are valid for 30 days. Your previous selections are no longer pre-filled, but you can submit your availability again using the form below.', 'doodle-clone-scheduler' )
             . ' '
             . sprintf(
-                /* translators: %s: admin email address */
+                /* translators: %s: organiser email address */
                 esc_html__( 'If you need help, contact %s.', 'doodle-clone-scheduler' ),
-                '<a href="mailto:' . esc_attr( $admin_email ) . '">' . esc_html( $admin_email ) . '</a>'
+                '<a href="mailto:' . esc_attr( $organiser_email ) . '">' . esc_html( $organiser_email ) . '</a>'
             )
             . '</div>';
     }

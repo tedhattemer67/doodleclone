@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.0
+Stable tag: 2.4.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,17 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.1 =
+* Organiser emails now go to the event's owner (its Author) instead of
+  the site admin email: the "New booking" notification and the "Final
+  details sent" summary.
+* "Contact the organiser" messages shown to attendees (duplicate booking,
+  expired edit link) now give the owner's email address.
+* Events with no author, a deleted author or an invalid author email
+  still use the site admin email.
+* New filter `dcs_organiser_email( $email, $post_id )` to route organiser
+  emails elsewhere.
 
 = 2.4.0 =
 * New "Meeting Organiser" user role. Organisers can create, edit, publish,
@@ -299,6 +310,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.1 =
+Booking notifications and send summaries now go to each event's owner, not
+the site admin email.
 
 = 2.4.0 =
 Adds a Meeting Organiser role. Existing events stay with the user who created

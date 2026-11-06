@@ -392,7 +392,7 @@ class DCS_Ajax {
                                 'error' => sprintf(
                                     /* translators: %s: organiser email address */
                                     __( 'This email address already has a booking for this event. To change your time, contact the organiser at %s.', 'doodle-clone-scheduler' ),
-                                    get_option( 'admin_email' )
+                                    dcs_event_organiser_email( $event_id )
                                 ),
                             ];
                         }

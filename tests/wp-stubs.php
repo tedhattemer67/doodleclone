@@ -15,7 +15,7 @@ $GLOBALS['_posts']      = [];
 $GLOBALS['_opts']       = [ 'admin_email' => 'admin@example.com', 'date_format' => 'F j, Y', 'time_format' => 'g:i a' ];
 
 class WP_Post {
-    public $ID; public $post_title; public $post_status = 'publish'; public $post_type = 'meeting_event';
+    public $ID; public $post_title; public $post_status = 'publish'; public $post_type = 'meeting_event'; public $post_author = 0;
     function __construct( $id, $title ) { $this->ID = $id; $this->post_title = $title; }
 }
 class WP_Error {
@@ -130,6 +130,10 @@ function add_role( $r, $label, $caps ) {
 }
 function wp_get_current_user() { return new WP_User( $GLOBALS['_user_id'] ?? 1, $GLOBALS['_user_roles'] ?? [ 'administrator' ] ); }
 function get_current_user_id() { return $GLOBALS['_user_id'] ?? 1; }
+// Accounts for get_userdata(): $GLOBALS['_users'][ id ] = email.
+function get_userdata( $id ) {
+    return isset( $GLOBALS['_users'][ $id ] ) ? (object) [ 'ID' => $id, 'user_email' => $GLOBALS['_users'][ $id ] ] : false;
+}
 function is_admin() { return $GLOBALS['_is_admin'] ?? true; }
 function wp_is_post_revision() { return false; }
 

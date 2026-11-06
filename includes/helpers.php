@@ -161,6 +161,26 @@ function dcs_upgrade_2_3_4(): bool {
 }
 
 /**
+ * Email address of the person running an event: its Author's account email.
+ * Falls back to the site's Administration Email Address when the event has no
+ * author, the author's account is gone, or its email is invalid.
+ *
+ * Used for organiser notifications (new bookings, final-details summaries)
+ * and in "contact the organiser" messages shown to attendees.
+ * Filter: dcs_organiser_email( $email, $post_id ).
+ */
+function dcs_event_organiser_email( int $post_id ): string {
+    $email = '';
+    $post  = get_post( $post_id );
+    if ( $post && ! empty( $post->post_author ) ) {
+        $user = get_userdata( (int) $post->post_author );
+        if ( $user && is_email( $user->user_email ) ) $email = $user->user_email;
+    }
+    if ( $email === '' ) $email = (string) get_option( 'admin_email' );
+    return (string) apply_filters( 'dcs_organiser_email', $email, $post_id );
+}
+
+/**
  * Formats a timestamp range in the plugin timezone.
  * Returns a string like "Mar 5, 2026 · 2:00pm – 3:00pm EST". The zone
  * abbreviation is the one in effect on the slot's own date, not today's.

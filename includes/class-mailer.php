@@ -10,7 +10,7 @@ class DCS_Mailer {
 
     /**
      * Sends a booking confirmation with an ICS attachment to the attendee,
-     * and a plain notification to the site admin.
+     * and a plain notification to the event's organiser.
      */
     public static function send_booking_confirmation( int $event_id, array $slot, string $name, string $email ): void {
         $post      = get_post( $event_id );
@@ -37,9 +37,9 @@ class DCS_Mailer {
 
         wp_mail( $email, $subject, $body, $headers, $ics_path ? [ $ics_path ] : [] );
 
-        // Admin notification
+        // Organiser notification
         wp_mail(
-            get_option( 'admin_email' ),
+            dcs_event_organiser_email( $event_id ),
             sprintf( __( 'New booking: %s', 'doodle-clone-scheduler' ), $title ),
             sprintf( '%s (%s) booked %s', $name, $email, dcs_format_range( $start_ts, $end_ts ) ),
             $headers
@@ -399,7 +399,7 @@ class DCS_Mailer {
         return $html;
     }
 
-    /** One summary email to the site admin per send: each slot, its details, who was emailed. */
+    /** One summary email to the event's organiser per send: each slot, its details, who was emailed. */
     private static function send_final_details_admin_summary( int $post_id, string $title, array $recipients, array $sent_to ): void {
         $by_slot = [];
         foreach ( $recipients as $norm => $r ) {
@@ -428,7 +428,7 @@ class DCS_Mailer {
         }
 
         wp_mail(
-            get_option( 'admin_email' ),
+            dcs_event_organiser_email( $post_id ),
             sprintf( __( 'Final details sent: %s', 'doodle-clone-scheduler' ), $title ),
             $body,
             [ 'Content-Type: text/html; charset=UTF-8' ]
