@@ -178,7 +178,11 @@ class DCS_Admin {
         if ( ! is_array( $slots ) ) $slots = [];
         $overrides = dcs_get_meeting_details( $post->ID )['slots'];
         $parts     = dcs_get_parts( $post->ID );
+        // Outside the slot list, so it is posted even after every slot row
+        // has been removed — lets save_slots() tell "all slots deleted" from
+        // "this save didn't come from the Meeting Slots box".
         ?>
+        <input type="hidden" name="dcs_slots_present" value="1">
         <div id="dcs-slot-wrapper">
         <?php foreach ( $slots as $i => $slot ) : ?>
             <div class="dcs-slot" data-index="<?php echo $i; ?>">
@@ -860,11 +864,21 @@ class DCS_Admin {
     /** Priority 10: Write slots submitted via the admin form. */
     public static function save_slots( int $post_id ): void {
         if ( ! self::should_save( $post_id ) ) return;
-        if ( empty( $_POST['slots'] ) || ! is_array( $_POST['slots'] ) ) return;
 
         // WordPress adds slashes to every superglobal; strip them before
         // sanitizing so values like "O'Brien" are not stored as "O\'Brien".
-        $posted_slots = wp_unslash( $_POST['slots'] );
+        $posted_slots = ( ! empty( $_POST['slots'] ) && is_array( $_POST['slots'] ) ) ? wp_unslash( $_POST['slots'] ) : [];
+
+        if ( ! $posted_slots ) {
+            // No slot rows posted. Only treat that as "delete every slot"
+            // when the Meeting Slots box itself was submitted (its marker is
+            // there) with a valid nonce from this edit screen. Any other save
+            // (Quick Edit, a programmatic update, …) leaves slots alone.
+            $from_box = ! empty( $_POST['dcs_slots_present'] )
+                && isset( $_POST['dcs_save_details_nonce'] )
+                && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dcs_save_details_nonce'] ) ), 'dcs_save_details_action' );
+            if ( ! $from_box ) return;
+        }
 
         // Parts were saved at priority 8, so this is the current list.
         $parts = dcs_get_parts( $post_id );

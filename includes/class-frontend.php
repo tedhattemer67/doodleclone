@@ -239,13 +239,14 @@ class DCS_Frontend {
 
         // Valid token — look up the voter's selections
         $email = $data['email'];
+        $norm  = dcs_normalize_email( $email );
         $name  = '';
         $keys  = [];
 
         foreach ( $slots as $slot ) {
-            if ( empty( $slot['attendees'] ) ) continue;
+            if ( empty( $slot['attendees'] ) || ! is_array( $slot['attendees'] ) ) continue;
             foreach ( $slot['attendees'] as $a ) {
-                if ( strtolower( $a['email'] ?? '' ) !== $email ) continue;
+                if ( $norm === '' || dcs_normalize_email( (string) ( $a['email'] ?? '' ) ) !== $norm ) continue;
                 if ( ! empty( $a['name'] ) && $name === '' ) {
                     $name = $a['name'];
                 }
@@ -322,11 +323,13 @@ class DCS_Frontend {
         if ( ! $token_data || intval( $token_data['event_id'] ) !== $post_id ) return $prefill;
 
         $prefill['email'] = $token_data['email'];
+        // Same identity rule as the AJAX handlers (normalised email).
+        $norm = dcs_normalize_email( $token_data['email'] );
 
         foreach ( $slots as $slot ) {
-            if ( empty( $slot['attendees'] ) ) continue;
+            if ( empty( $slot['attendees'] ) || ! is_array( $slot['attendees'] ) ) continue;
             foreach ( $slot['attendees'] as $a ) {
-                if ( strtolower( $a['email'] ?? '' ) !== $prefill['email'] ) continue;
+                if ( $norm === '' || dcs_normalize_email( (string) ( $a['email'] ?? '' ) ) !== $norm ) continue;
                 if ( ! empty( $a['name'] ) && $prefill['name'] === '' ) {
                     $prefill['name'] = $a['name'];
                 }

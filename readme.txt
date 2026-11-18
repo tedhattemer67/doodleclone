@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.6
+Stable tag: 2.4.7
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,22 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.7 =
+* Fix: a poll vote naming a time that isn't one of the poll's slots is now
+  refused ("One of the selected times is no longer available"). Before, it
+  wiped the voter's real picks, still issued an edit link and sent the
+  organiser an empty "New response" email. Sessions sign-ups already
+  worked this way.
+* Fix: poll votes, edit-link pre-fill, the closed-poll summary, rate limits
+  and confirmation throttles now match people on the normalised email, the
+  same as 1-on-1 bookings and Sessions. A voter whose edit link says
+  ann.smith@gmail.com can resubmit as annsmith@gmail.com and their picks
+  are replaced, not duplicated. Gmail variants of one address share a rate
+  limit.
+* Fix: removing every slot from an event and clicking Update now saves
+  the event with no slots (and removes their meeting-detail overrides).
+  Before, the old slots stayed.
 
 = 2.4.6 =
 * Fix: closing a poll could record the wrong final time if a slot was
@@ -376,6 +392,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.7 =
+Poll votes for unknown times are refused, people are matched on one email
+rule everywhere, and the last slot of an event can be deleted.
 
 = 2.4.6 =
 Closing a poll always records the time you picked, and an interrupted

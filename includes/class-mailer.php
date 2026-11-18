@@ -63,7 +63,7 @@ class DCS_Mailer {
         // Rate-limit first-time submissions to one email per 60 seconds.
         // Always send on explicit edits so the voter always has a working link.
         if ( ! $is_update ) {
-            $rate_key = 'dcs_poll_conf_' . $event_id . '_' . md5( strtolower( $email ) );
+            $rate_key = 'dcs_poll_conf_' . $event_id . '_' . md5( dcs_normalize_email( $email ) );
             if ( get_transient( $rate_key ) ) return;
             set_transient( $rate_key, 1, 60 );
         }
@@ -115,7 +115,7 @@ class DCS_Mailer {
         // Same throttle as poll confirmations: first submissions at most one
         // email per minute per address; edits always send a fresh link.
         if ( ! $is_update ) {
-            $rate_key = 'dcs_sess_conf_' . $event_id . '_' . md5( strtolower( $email ) );
+            $rate_key = 'dcs_sess_conf_' . $event_id . '_' . md5( dcs_normalize_email( $email ) );
             if ( get_transient( $rate_key ) ) return;
             set_transient( $rate_key, 1, 60 );
         }

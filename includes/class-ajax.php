@@ -70,7 +70,8 @@ class DCS_Ajax {
         // attempts against one target address even when spread across many IPs
         // (relevant once hijack attempts are blocked below, since an attacker
         // could otherwise still brute-force-probe a given address).
-        if ( dcs_rate_limited( 'ev_' . $event_id . '_' . strtolower( $email ), 8, 600 ) ) {
+        // Normalised, so Gmail dot/+tag variants of one address share a limit.
+        if ( dcs_rate_limited( 'ev_' . $event_id . '_' . dcs_normalize_email( $email ), 8, 600 ) ) {
             wp_send_json_error( __( 'Too many attempts for this email address. Please wait a few minutes and try again.', 'doodle-clone-scheduler' ), 429 );
         }
 
@@ -100,15 +101,22 @@ class DCS_Ajax {
     // -------------------------------------------------------------------------
 
     private static function handle_poll_vote( int $event_id, string $name, string $email ): void {
-        $selected_keys = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['slot_ids'] ?? [] ) ) );
+        $selected_keys = array_values( array_unique( array_filter(
+            array_map( 'sanitize_text_field', wp_unslash( array_filter( (array) ( $_POST['slot_ids'] ?? [] ), 'is_string' ) ) ),
+            fn( $k ) => $k !== ''
+        ) ) );
 
         if ( empty( $selected_keys ) ) {
             wp_send_json_error( __( 'Please select at least one time slot.', 'doodle-clone-scheduler' ) );
         }
 
-        $email_lower  = strtolower( $email );
+        // Identity is the normalised email (Gmail dot/+tag aware), the same
+        // rule as Sessions, 1-on-1 bookings and the issued-token record — so
+        // "j.doe@gmail.com" can't hold a second, separate set of votes.
+        $norm         = dcs_normalize_email( $email );
+        $is_mine      = fn( $a ) => dcs_normalize_email( is_array( $a ) ? (string) ( $a['email'] ?? '' ) : '' ) === $norm;
         $edit_token   = sanitize_text_field( wp_unslash( $_POST['dcs_edit_token'] ?? '' ) );
-        $issued_key   = '_dcs_token_issued_' . md5( dcs_normalize_email( $email ) );
+        $issued_key   = '_dcs_token_issued_' . md5( $norm );
 
         // Correctness: hold a lock across the whole read-modify-write of
         // _meeting_slots. Without it, two voters submitting close together
@@ -116,7 +124,7 @@ class DCS_Ajax {
         // silently overwrite the first voter's selections (lost update) —
         // plausible in practice, since poll invites/reminders tend to prompt
         // a burst of near-simultaneous responses.
-        $result = dcs_with_lock( dcs_event_lock_key( $event_id ), function () use ( $event_id, $name, $email, $email_lower, $selected_keys, $edit_token, $issued_key ) {
+        $result = dcs_with_lock( dcs_event_lock_key( $event_id ), function () use ( $event_id, $name, $email, $norm, $is_mine, $selected_keys, $edit_token, $issued_key ) {
             // A persistent object cache may be serving a copy of this post's
             // meta from before the lock was acquired — drop it so the read
             // below reflects what's actually in the database right now.
@@ -129,8 +137,8 @@ class DCS_Ajax {
             $is_update = false;
             foreach ( $slots as $slot ) {
                 if ( empty( $slot['attendees'] ) ) continue;
-                foreach ( $slot['attendees'] as $a ) {
-                    if ( strtolower( $a['email'] ?? '' ) === $email_lower ) {
+                foreach ( (array) $slot['attendees'] as $a ) {
+                    if ( $is_mine( $a ) ) {
                         $is_update = true;
                         break 2;
                     }
@@ -155,11 +163,20 @@ class DCS_Ajax {
                 $token      = $edit_token ? dcs_parse_edit_token( $edit_token ) : false;
                 $authorized = $token
                     && intval( $token['event_id'] ) === $event_id
-                    && strtolower( $token['email'] ) === $email_lower;
+                    && dcs_normalize_email( $token['email'] ) === $norm;
 
                 if ( ! $authorized ) {
                     return [ 'ok' => false, 'code' => 403, 'error' => __( 'This email address already has a response on file. Please use the edit link that was emailed to you to change your selections.', 'doodle-clone-scheduler' ) ];
                 }
+            }
+
+            // Every chosen time must be one of this poll's slots. Otherwise a
+            // request naming only made-up times would wipe the voter's real
+            // picks, issue an edit link and notify the organiser of an empty
+            // response. (Same check as Sessions sign-ups.)
+            $known = array_map( 'dcs_slot_key', $slots );
+            if ( array_diff( $selected_keys, $known ) ) {
+                return [ 'ok' => false, 'error' => __( 'One of the selected times is no longer available. Please refresh the page and try again.', 'doodle-clone-scheduler' ) ];
             }
 
             // Capacity: a time with a Max takes only that many "yes" votes. A
@@ -168,7 +185,7 @@ class DCS_Ajax {
             foreach ( $slots as $slot ) {
                 if ( ! in_array( dcs_slot_key( $slot ), $selected_keys, true ) ) continue;
                 $att    = is_array( $slot['attendees'] ?? null ) ? $slot['attendees'] : [];
-                $others = array_filter( $att, fn( $a ) => strtolower( $a['email'] ?? '' ) !== $email_lower );
+                $others = array_filter( $att, fn( $a ) => ! $is_mine( $a ) );
                 if ( count( $others ) < count( $att ) ) continue;
                 if ( dcs_slot_is_full( $slot, count( $others ) ) ) {
                     return [ 'ok' => false, 'error' => sprintf( __( 'Sorry, %s is already full. Please untick it and submit again.', 'doodle-clone-scheduler' ), dcs_slot_range( $slot ) ) ];
@@ -178,10 +195,7 @@ class DCS_Ajax {
             // Remove this voter from all slots (replace-by-email semantics)
             foreach ( $slots as $i => $slot ) {
                 if ( empty( $slot['attendees'] ) || ! is_array( $slot['attendees'] ) ) continue;
-                $slots[ $i ]['attendees'] = array_values( array_filter(
-                    $slot['attendees'],
-                    fn( $a ) => strtolower( $a['email'] ?? '' ) !== $email_lower
-                ) );
+                $slots[ $i ]['attendees'] = array_values( array_filter( $slot['attendees'], fn( $a ) => ! $is_mine( $a ) ) );
             }
 
             // Add voter to selected slots

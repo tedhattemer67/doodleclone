@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.4.6
+- **Version:** 2.4.7
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -450,8 +450,10 @@ The public form submits to `admin-ajax.php?action=dcs_book_slot`.
   that arrive while the organiser has the page open are kept on Update, and
   people who moved to another time aren't put back. The organiser's own
   removals and additions still apply.
-- **One booking per person** on 1-on-1 events, matched on a normalised email,
-  so Gmail `j.doe+x@gmail.com` and `jdoe@gmail.com` count as the same person.
+- **One response per person.** People are matched on a normalised email
+  everywhere (1-on-1 bookings, poll votes, Sessions sign-ups, edit links,
+  rate limits), so Gmail `j.doe+x@gmail.com` and `jdoe@gmail.com` count as the
+  same person.
 - Nonces on every admin action and on the public form.
 
 ---
