@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.5
+Stable tag: 2.4.6
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,24 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.6 =
+* Fix: closing a poll could record the wrong final time if a slot was
+  removed (or a blank row skipped) in the same Update, because the choice
+  was sent as a row position. It is now sent as the slot's id. If the
+  chosen time was removed in that same Update, the poll stays open and a
+  notice asks you to pick again.
+* Fix: the Poll Results table always highlighted the first row as the
+  winner on an open poll, and both admin tables could highlight the wrong
+  row after slots were added once a poll was closed.
+* Fix: if sending final details stopped part way (server time limit, mail
+  server stall), nobody was recorded as emailed, so "Send only to people
+  not yet emailed" was missing or re-sent to everyone. Each person is now
+  recorded as their email goes out, and the time limit is reset per email.
+* Only one final-details send per event runs at a time. A double-click or
+  a second organiser sends nothing more and is told a send is running.
+* After each send, a notice says how many emails went out and how many
+  could not be sent.
 
 = 2.4.5 =
 * Security: password-protected events now behave like other protected
@@ -358,6 +376,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.6 =
+Closing a poll always records the time you picked, and an interrupted
+final-details send can be resumed without emailing anyone twice.
 
 = 2.4.5 =
 Security fix: password-protected events no longer show the sign-up form or

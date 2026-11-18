@@ -40,6 +40,7 @@ function get_option( $k, $d = false ) { return $GLOBALS['_opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['_opts'][ $k ] = $v; }
 function get_transient( $k ) { return $GLOBALS['_transients'][ $k ] ?? false; }
 function set_transient( $k, $v, $t ) { $GLOBALS['_transients'][ $k ] = $v; }
+function delete_transient( $k ) { unset( $GLOBALS['_transients'][ $k ] ); }
 function wp_cache_delete() {}
 
 // i18n / escaping / sanitizing
@@ -171,9 +172,15 @@ function is_singular() { return true; }
 function in_the_loop() { return true; }
 function get_the_ID() { return $GLOBALS['_current_post']; }
 
-// Files / mail — attachments are read at send time, as a real mailer would
+// Files / mail — attachments are read at send time, as a real mailer would.
+// $GLOBALS['_mail_fail'] = [ addresses ] makes wp_mail() return false for
+// those; $GLOBALS['_mail_budget'] = N lets N more emails through, then the
+// next one throws RequestDied (a PHP timeout / killed request).
+class RequestDied extends Exception {}
 function wp_tempnam( $n ) { return tempnam( sys_get_temp_dir(), 'dcs' ); }
 function wp_mail( $to, $subj, $body, $headers = [], $att = [] ) {
+    if ( isset( $GLOBALS['_mail_budget'] ) && $GLOBALS['_mail_budget']-- <= 0 ) throw new RequestDied( 'request died' );
+    if ( in_array( $to, $GLOBALS['_mail_fail'] ?? [], true ) ) return false;
     $ics = [];
     foreach ( (array) $att as $a ) $ics[] = file_get_contents( $a );
     $GLOBALS['_mail'][] = compact( 'to', 'subj', 'body', 'ics' );

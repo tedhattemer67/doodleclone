@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.4.5
+- **Version:** 2.4.6
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -267,7 +267,8 @@ All in the **Close & Send Final Details** box.
    one if you like.
 2. Click **Close Poll with Selected Time** (this saves the post). The public
    page now shows "This poll is now closed" with the chosen time and an
-   "Add to Google Calendar" link.
+   "Add to Google Calendar" link. If the time you picked was removed in the
+   same update, the poll stays open and a notice asks you to pick again.
 3. A **Send Final Details** panel appears. **Send to everyone** emails every
    voter the chosen time plus its meeting details and an `.ics` file.
 4. **Reopen Poll** clears the chosen time and accepts votes again.
@@ -284,6 +285,13 @@ All in the **Close & Send Final Details** box.
 **Re-sending.** After the first send, a second button appears:
 **Send only to people not yet emailed**. Use it after reopening and picking up
 late sign-ups. **Send to everyone** again re-sends to all.
+
+After each send, a notice at the top of the page says how many emails went out.
+If some couldn't be sent, or the send stopped part way (for example the server
+timed out on a long list), each person is recorded as their email goes out.
+**Send only to people not yet emailed** then reaches just the ones who were
+missed. Only one send per event runs at a time. A second click while one is
+running sends nothing and says so.
 
 Details are read **live at send time**, so if a Zoom link changes after
 closing, update it and re-send. Each send bumps the calendar `SEQUENCE`, so

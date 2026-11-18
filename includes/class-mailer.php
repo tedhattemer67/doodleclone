@@ -219,14 +219,46 @@ class DCS_Mailer {
      * and an .ics per slot. Details are read live at send time, so edits made
      * after closing go out on the next re-send.
      *
+     * Only one send per event runs at a time (a double-click, or a second
+     * organiser clicking Send, finds it busy and sends nothing). Who has been
+     * emailed is recorded after each email, so if the request dies part way
+     * (PHP time limit, mail server stall) "Send only to people not yet
+     * emailed" picks up where it stopped instead of starting over.
+     *
      * @param int    $post_id  The meeting event post ID.
      * @param string $mode     'all' to send to everyone, 'new' to skip anyone
      *                         already emailed by a previous send.
-     * @return int             Number of emails successfully sent.
+     * @return int             Number of emails successfully sent. Details of
+     *                         the outcome are in self::$last_send.
      */
     public static function send_final_details( int $post_id, string $mode = 'all' ): int {
+        self::$last_send = [ 'sent' => 0, 'failed' => 0, 'busy' => false ];
         $post = get_post( $post_id );
         if ( ! $post ) return 0;
+
+        // A lock of its own, not the event lock: it is held for the whole
+        // send, which can take minutes, and must not hold up voters. Timeout
+        // 0 — a second send doesn't queue up behind the first, it just stops.
+        $result = dcs_with_lock( 'final_details_' . $post_id, fn() => self::send_final_details_locked( $post, $mode ), 0 );
+        if ( is_wp_error( $result ) ) {
+            self::$last_send['busy'] = true;
+            return 0;
+        }
+        return (int) $result;
+    }
+
+    /**
+     * Outcome of the last send_final_details() call in this request:
+     * [ 'sent' => int, 'failed' => int, 'busy' => bool ], or null if none.
+     */
+    public static ?array $last_send = null;
+
+    /** send_final_details() body; runs holding the event's send lock. */
+    private static function send_final_details_locked( WP_Post $post, string $mode ): int {
+        $post_id = $post->ID;
+
+        // Keep going if the organiser closes the tab mid-send.
+        ignore_user_abort( true );
 
         $recipients = self::final_details_recipients( $post_id );
         if ( empty( $recipients ) ) return 0;
@@ -243,7 +275,10 @@ class DCS_Mailer {
         $sessions  = dcs_is_sessions_mode( $mode_meta );
         $headers   = [ 'Content-Type: text/html; charset=UTF-8' ];
 
-        $sent_hashes   = (array) get_post_meta( $post_id, '_poll_announce_recipient_hashes', true );
+        // Not (array) on the raw value: with no send yet the meta is '', which
+        // would become [ '' ] and store a blank hash.
+        $sent_hashes   = get_post_meta( $post_id, '_poll_announce_recipient_hashes', true );
+        $sent_hashes   = is_array( $sent_hashes ) ? array_filter( $sent_hashes, 'is_string' ) : [];
         $sent_hash_map = array_fill_keys( $sent_hashes, true );
 
         $ics_cache  = []; // slot key => temp .ics path, built once per slot
@@ -253,6 +288,10 @@ class DCS_Mailer {
         foreach ( $recipients as $norm => $r ) {
             $hash = hash( 'sha256', $norm );
             if ( $mode === 'new' && isset( $sent_hash_map[ $hash ] ) ) continue;
+
+            // Fresh time budget per email, so the PHP time limit caps a single
+            // slow send rather than the whole list. No-op where disabled.
+            if ( function_exists( 'set_time_limit' ) ) @set_time_limit( 60 );
 
             $attachments = [];
             $blocks      = '';
@@ -312,16 +351,26 @@ class DCS_Mailer {
                 $sent_count++;
                 $sent_hash_map[ $hash ] = true;
                 $sent_to[] = $norm;
+                // Record this person now, not after the loop: if the request
+                // dies later in the list, they are already marked as emailed
+                // (and sent_at makes "Send only to people not yet emailed"
+                // appear), so the retry doesn't email them a second time.
+                update_post_meta( $post_id, '_poll_announce_recipient_hashes', array_keys( $sent_hash_map ) );
+                update_post_meta( $post_id, '_poll_announce_sent_at', time() );
+                update_post_meta( $post_id, '_poll_announce_count', $sent_count );
+            } else {
+                self::$last_send['failed']++;
             }
+        }
+
+        foreach ( $ics_cache as $path ) {
+            if ( $path && file_exists( $path ) ) @unlink( $path );
         }
 
         update_post_meta( $post_id, '_poll_announce_sent_at', time() );
         update_post_meta( $post_id, '_poll_announce_count', $sent_count );
         update_post_meta( $post_id, '_poll_announce_recipient_hashes', array_keys( $sent_hash_map ) );
-
-        foreach ( $ics_cache as $path ) {
-            if ( $path && file_exists( $path ) ) @unlink( $path );
-        }
+        self::$last_send['sent'] = $sent_count;
 
         if ( $sent_count > 0 ) {
             self::send_final_details_admin_summary( $post_id, $title, $recipients, $sent_to );

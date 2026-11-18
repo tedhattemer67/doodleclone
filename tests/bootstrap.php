@@ -65,6 +65,40 @@ function ajax( array $post ) {
 }
 function mails_to( $to ) { return array_values( array_filter( $GLOBALS['_mail'], fn( $m ) => $m['to'] === $to ) ); }
 function render( callable $fn ) { ob_start(); $fn(); return ob_get_clean(); }
+/**
+ * Turns rendered admin HTML back into what the browser would POST: every
+ * named input (radios/checkboxes only when checked), the selected option of
+ * each select, and each textarea. Script templates are ignored.
+ */
+function form_post( string $html ): array {
+    $html  = preg_replace( '#<script type="text/template".*?</script>#s', '', $html );
+    $hd    = fn( $s ) => html_entity_decode( $s, ENT_QUOTES, 'UTF-8' );
+    $pairs = [];
+    preg_match_all( '#<input[^>]*>#', $html, $m );
+    foreach ( $m[0] as $tag ) {
+        if ( ! preg_match( '#name="([^"]*)"#', $tag, $n ) ) continue;
+        if ( preg_match( '#type="(radio|checkbox)"#', $tag ) && ! preg_match( '#\schecked#', $tag ) ) continue;
+        $v = preg_match( '#value="([^"]*)"#', $tag, $vm ) ? $vm[1] : '';
+        $pairs[] = urlencode( $hd( $n[1] ) ) . '=' . urlencode( $hd( $v ) );
+    }
+    preg_match_all( '#<select[^>]*name="([^"]*)"[^>]*>(.*?)</select>#s', $html, $m, PREG_SET_ORDER );
+    foreach ( $m as $s ) {
+        $v = preg_match( '#<option value="([^"]*)"[^>]*selected#', $s[2], $o ) ? $o[1]
+            : ( preg_match( '#<option value="([^"]*)"#', $s[2], $o ) ? $o[1] : '' );
+        $pairs[] = urlencode( $hd( $s[1] ) ) . '=' . urlencode( $hd( $v ) );
+    }
+    preg_match_all( '#<textarea[^>]*name="([^"]*)"[^>]*>(.*?)</textarea>#s', $html, $m, PREG_SET_ORDER );
+    foreach ( $m as $t ) $pairs[] = urlencode( $hd( $t[1] ) ) . '=' . urlencode( $hd( $t[2] ) );
+    parse_str( implode( '&', $pairs ), $out );
+    return $out;
+}
+/** The Meeting Slots box as the browser would submit it ($_POST['slots']). */
+function admin_form( $id ) {
+    return form_post( render( fn() => DCS_Admin::render_slots_box( get_post( $id ) ) ) )['slots'];
+}
+/** Notices queued for the current user's next admin page. */
+function notices(): array { return $GLOBALS['_transients'][ 'dcs_notices_' . get_current_user_id() ] ?? []; }
+function clear_notices(): void { unset( $GLOBALS['_transients'][ 'dcs_notices_' . get_current_user_id() ] ); }
 /** Renders the public event page, optionally as someone holding an edit link. */
 function front( $id, string $token = '' ) {
     $GLOBALS['_current_post'] = $id;

@@ -25,32 +25,6 @@ function emails_at( $id, $time ) {
 function key_at( $id, $time ) { return dcs_slot_key( slot_at( $id, $time ) ); }
 function lock_of( $id ) { return 'dcs_' . md5( 'event_' . $id ); }
 
-/**
- * The Meeting Slots box as the browser would submit it: renders the meta box
- * and turns its inputs / selects / textareas back into a $_POST['slots'] array.
- */
-function admin_form( $id ) {
-    $html  = render( fn() => DCS_Admin::render_slots_box( get_post( $id ) ) );
-    $html  = preg_replace( '#<script type="text/template".*?</script>#s', '', $html );
-    $hd    = fn( $s ) => html_entity_decode( $s, ENT_QUOTES, 'UTF-8' );
-    $pairs = [];
-    preg_match_all( '#<input[^>]*>#', $html, $m );
-    foreach ( $m[0] as $tag ) {
-        if ( ! preg_match( '#name="([^"]*)"#', $tag, $n ) ) continue;
-        $v = preg_match( '#value="([^"]*)"#', $tag, $vm ) ? $vm[1] : '';
-        $pairs[] = urlencode( $hd( $n[1] ) ) . '=' . urlencode( $hd( $v ) );
-    }
-    preg_match_all( '#<select[^>]*name="([^"]*)"[^>]*>(.*?)</select>#s', $html, $m, PREG_SET_ORDER );
-    foreach ( $m as $s ) {
-        $v = preg_match( '#<option value="([^"]*)"[^>]*selected#', $s[2], $o ) ? $o[1]
-            : ( preg_match( '#<option value="([^"]*)"#', $s[2], $o ) ? $o[1] : '' );
-        $pairs[] = urlencode( $hd( $s[1] ) ) . '=' . urlencode( $hd( $v ) );
-    }
-    preg_match_all( '#<textarea[^>]*name="([^"]*)"[^>]*>(.*?)</textarea>#s', $html, $m, PREG_SET_ORDER );
-    foreach ( $m as $t ) $pairs[] = urlencode( $hd( $t[1] ) ) . '=' . urlencode( $hd( $t[2] ) );
-    parse_str( implode( '&', $pairs ), $out );
-    return $out['slots'];
-}
 function vote( $id, $who, array $times, string $token = '' ) {
     return ajax( [ 'event_id' => $id, 'name' => ucfirst( $who ), 'email' => "$who@example.com",
         'slot_ids' => array_map( fn( $t ) => key_at( $id, $t ), $times ) ]

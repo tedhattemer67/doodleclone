@@ -33,6 +33,7 @@ class DCS_Admin {
         add_action( 'init',            [ __CLASS__, 'register_post_type' ] );
         add_action( 'add_meta_boxes',  [ __CLASS__, 'register_meta_boxes' ] );
         add_action( 'admin_footer',    [ __CLASS__, 'admin_footer_scripts' ] );
+        add_action( 'admin_notices',   [ __CLASS__, 'render_flash_notices' ] );
 
         // Single chained save hook — explicit priorities, no anonymous closures
         add_action( 'save_post_meeting_event', [ __CLASS__, 'dcs_snapshot_pre_save' ],        5,    3 );
@@ -373,7 +374,7 @@ class DCS_Admin {
             return;
         }
 
-        $selected_idx = intval( get_post_meta( $post->ID, '_poll_selected_slot_index', true ) );
+        $selected_id = (string) get_post_meta( $post->ID, '_poll_selected_slot_id', true );
 
         echo '<style>
             .dcs-results-table { width:100%; border-collapse:collapse; }
@@ -405,7 +406,7 @@ class DCS_Admin {
                 fn( $a ) => esc_html( ( $a['name'] ?? '' ) ?: ( $a['email'] ?? '' ) ?: '—' ),
                 $attendees
             );
-            $row_class = ( $idx === $selected_idx ) ? ' class="dcs-winner"' : '';
+            $row_class = ( $selected_id !== '' && dcs_slot_key( $slot ) === $selected_id ) ? ' class="dcs-winner"' : '';
             $dur_mins  = intval( $slot['duration_minutes'] ?? 0 );
             if ( ! $dur_mins && ! empty( $slot['start'] ) && ! empty( $slot['end'] ) ) {
                 $dur_mins = intdiv( intval( $slot['end'] ) - intval( $slot['start'] ), 60 );
@@ -579,8 +580,7 @@ class DCS_Admin {
         }
 
         $status       = get_post_meta( $post->ID, '_poll_status', true ) ?: 'open';
-        $selected_idx = get_post_meta( $post->ID, '_poll_selected_slot_index', true );
-        $selected_idx = ( $selected_idx !== '' ) ? intval( $selected_idx ) : -1;
+        $selected_id  = (string) get_post_meta( $post->ID, '_poll_selected_slot_id', true );
         $snapshot     = get_post_meta( $post->ID, '_poll_selected_slot_snapshot', true );
         $sel_start    = is_array( $snapshot ) ? intval( $snapshot['start'] ?? 0 ) : intval( get_post_meta( $post->ID, '_poll_selected_start', true ) );
         $sel_end      = is_array( $snapshot ) ? intval( $snapshot['end'] ?? 0 )   : intval( get_post_meta( $post->ID, '_poll_selected_end', true ) );
@@ -636,10 +636,12 @@ class DCS_Admin {
                 $sl['attendees'] ?? []
             ) );
 
-            // Determine if this row should be checked
+            // Determine if this row should be checked: the chosen slot by id
+            // (a row position goes stale as soon as slots are added/removed),
+            // else by the chosen start time, else the suggestion.
             $checked = false;
-            if ( $selected_idx >= 0 ) {
-                $checked = ( $idx === $selected_idx );
+            if ( $selected_id !== '' ) {
+                $checked = ( dcs_slot_key( $sl ) === $selected_id );
             } elseif ( $sel_start ) {
                 $checked = ( $s === $sel_start );
             } elseif ( $status === 'open' && $idx === $suggested_idx ) {
@@ -647,7 +649,11 @@ class DCS_Admin {
             }
 
             echo '<tr>';
-            printf( '<td><input type="radio" name="dcs_selected_slot_index" value="%d"%s></td>', $idx, $checked ? ' checked' : '' );
+            // The slot's id, not its row position: save_slots() runs before
+            // the close handler and may reorder or drop rows (a slot removed
+            // in the same save, a blank row skipped), which would shift a
+            // position onto the wrong slot.
+            printf( '<td><input type="radio" name="dcs_selected_slot" value="%s"%s></td>', esc_attr( dcs_slot_key( $sl ) ), $checked ? ' checked' : '' );
             echo '<td>' . esc_html( dcs_slot_range( $sl ) ) . '</td>';
             echo '<td>' . esc_html( dcs_format_duration( $dur_mins ) ?: '—' ) . '</td>';
             echo '<td>' . esc_html( self::votes_of_max( $sl ) ) . '</td>';
@@ -1210,30 +1216,57 @@ class DCS_Admin {
         if ( empty( $_POST['dcs_close_poll'] ) || $_POST['dcs_close_poll'] != '1' ) return;
         if ( ! isset( $_POST['dcs_close_poll_nonce'] ) || ! wp_verify_nonce( $_POST['dcs_close_poll_nonce'], 'dcs_close_poll_action' ) ) return;
 
-        $sel_idx = isset( $_POST['dcs_selected_slot_index'] ) && $_POST['dcs_selected_slot_index'] !== ''
+        // The chosen slot, by id (dcs_selected_slot). An edit page rendered
+        // before 2.4.6 posts a row position instead (dcs_selected_slot_index);
+        // that is still honoured so an open page keeps working.
+        $sel_key = isset( $_POST['dcs_selected_slot'] ) && is_string( $_POST['dcs_selected_slot'] )
+            ? sanitize_text_field( wp_unslash( $_POST['dcs_selected_slot'] ) )
+            : '';
+        $sel_idx = ( $sel_key === '' && isset( $_POST['dcs_selected_slot_index'] ) && is_string( $_POST['dcs_selected_slot_index'] ) && $_POST['dcs_selected_slot_index'] !== '' )
             ? intval( $_POST['dcs_selected_slot_index'] )
             : -1;
 
-        if ( $sel_idx < 0 ) return;
+        if ( $sel_key === '' && $sel_idx < 0 ) {
+            self::flash_notice( __( 'The poll was not closed: choose the final time first.', 'doodle-clone-scheduler' ), 'warning' );
+            return;
+        }
 
-        $winner = self::locked_or_die( $post_id, function () use ( $post_id, $sel_idx ) {
+        $closed = self::locked_or_die( $post_id, function () use ( $post_id, $sel_key, $sel_idx ) {
             wp_cache_delete( $post_id, 'post_meta' );
             $slots = get_post_meta( $post_id, '_meeting_slots', true );
-            if ( ! is_array( $slots ) || ! isset( $slots[ $sel_idx ] ) ) return null;
+            if ( ! is_array( $slots ) ) return null;
 
-            $winner = dcs_normalize_slot_timestamps( $slots[ $sel_idx ] );
-            $slots[ $sel_idx ] = $winner;
+            $i = null;
+            if ( $sel_key !== '' ) {
+                foreach ( $slots as $k => $sl ) {
+                    if ( dcs_slot_key( $sl ) === $sel_key ) { $i = $k; break; }
+                }
+            } elseif ( isset( $slots[ $sel_idx ] ) ) {
+                $i = $sel_idx;
+            }
+            if ( $i === null ) return null;
+
+            $winner = dcs_normalize_slot_timestamps( $slots[ $i ] );
+            $slots[ $i ] = $winner;
             update_post_meta( $post_id, '_meeting_slots', $slots );
             // Closed inside the lock: no vote can slip in after the winner is
             // chosen but before the poll stops accepting responses.
             update_post_meta( $post_id, '_poll_status', 'closed' );
-            return $winner;
+            return [ $i, $winner ];
         } );
-        if ( ! is_array( $winner ) ) return;
+
+        if ( ! is_array( $closed ) ) {
+            // The chosen time was removed in this same save (or by someone
+            // else meanwhile). Closing on whatever now sits at that position
+            // would announce the wrong time, so leave the poll open and say so.
+            self::flash_notice( __( 'The poll was not closed: the time you chose no longer exists (was it removed in the same update?). Choose the final time again and click Close Poll.', 'doodle-clone-scheduler' ), 'error' );
+            return;
+        }
+        [ $sel_idx, $winner ] = $closed;
 
         update_post_meta( $post_id, '_poll_status',                 'closed' );
-        update_post_meta( $post_id, '_poll_selected_slot_index',    $sel_idx );
-        update_post_meta( $post_id, '_poll_selected_slot_id',       $winner['id'] ?? '' );
+        update_post_meta( $post_id, '_poll_selected_slot_index',    $sel_idx ); // legacy; screens now use the id
+        update_post_meta( $post_id, '_poll_selected_slot_id',       dcs_slot_key( $winner ) );
         update_post_meta( $post_id, '_poll_selected_slot_snapshot', $winner );
         update_post_meta( $post_id, '_poll_selected_start',         $winner['start'] ?? 0 );
         update_post_meta( $post_id, '_poll_selected_end',           $winner['end'] ?? 0 );
@@ -1257,6 +1290,23 @@ class DCS_Admin {
         }
 
         DCS_Mailer::send_final_details( $post_id, $mode_val );
+
+        $r = DCS_Mailer::$last_send ?? [ 'sent' => 0, 'failed' => 0, 'busy' => false ];
+        if ( $r['busy'] ) {
+            self::flash_notice( __( 'Final details are already being sent for this event (another click or another organiser). Nothing more was sent. Check "Last sent" in a minute, then use "Send only to people not yet emailed" if anyone was missed.', 'doodle-clone-scheduler' ), 'warning' );
+        } elseif ( $r['failed'] > 0 ) {
+            self::flash_notice( sprintf(
+                /* translators: 1: emails sent, 2: emails that failed */
+                __( 'Final details sent to %1$d recipient(s); %2$d could not be sent. Click "Send only to people not yet emailed" to retry those.', 'doodle-clone-scheduler' ),
+                $r['sent'], $r['failed']
+            ), 'error' );
+        } else {
+            self::flash_notice( sprintf(
+                /* translators: %d: emails sent */
+                _n( 'Final details sent to %d recipient.', 'Final details sent to %d recipients.', $r['sent'], 'doodle-clone-scheduler' ),
+                $r['sent']
+            ), 'success' );
+        }
     }
 
     /** Priority 200: Normalise all slot timestamps after slots are saved. */
@@ -1505,6 +1555,39 @@ class DCS_Admin {
         })(jQuery);
         </script>
         <?php
+    }
+
+    // =========================================================================
+    // Notices
+    // =========================================================================
+
+    /**
+     * Queues a notice for the current user's next admin page. Save handlers
+     * can't print anything themselves: WordPress redirects after saving.
+     *
+     * @param string $type 'success', 'warning' or 'error'.
+     */
+    public static function flash_notice( string $message, string $type = 'warning' ): void {
+        $key   = 'dcs_notices_' . get_current_user_id();
+        $queue = get_transient( $key );
+        $queue = is_array( $queue ) ? $queue : [];
+        $queue[] = [ 'message' => $message, 'type' => in_array( $type, [ 'success', 'warning', 'error' ], true ) ? $type : 'warning' ];
+        set_transient( $key, $queue, 5 * MINUTE_IN_SECONDS );
+    }
+
+    /** admin_notices: prints and clears the current user's queued notices. */
+    public static function render_flash_notices(): void {
+        $key   = 'dcs_notices_' . get_current_user_id();
+        $queue = get_transient( $key );
+        if ( ! is_array( $queue ) || ! $queue ) return;
+        delete_transient( $key );
+        foreach ( $queue as $n ) {
+            printf(
+                '<div class="notice notice-%s is-dismissible"><p>%s</p></div>',
+                esc_attr( $n['type'] ?? 'warning' ),
+                esc_html( $n['message'] ?? '' )
+            );
+        }
     }
 
     // =========================================================================
