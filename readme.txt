@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.3
+Stable tag: 2.4.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,18 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.4 =
+* Fix: two slots at the same date and time (e.g. Sessions parts held in
+  parallel rooms) were given the same internal id when the event was
+  saved, so sign-ups, capacity and per-slot meeting details could go to
+  the wrong slot. Each slot row now carries its id in the form, and every
+  id is used only once.
+* Changing a slot's date or time now keeps its id, so its votes and
+  bookings, its meeting-details override and a poll's chosen time stay
+  attached, and re-sent calendar files update the existing entry.
+* Slots added with "+ Add Slot" always get a new id, even when they share
+  a time with an existing slot.
 
 = 2.4.3 =
 * Fix: clicking Update (or Close Poll / Close Registration) on an event's
@@ -331,6 +343,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.4 =
+Fixes slots at the same time being mixed up on save, and keeps a slot's
+responses and details attached when its time is changed.
 
 = 2.4.3 =
 Fixes lost bookings and votes when an event is saved from an edit page

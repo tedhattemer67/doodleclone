@@ -153,7 +153,7 @@ ok( emails_at( 811, '08:30' ) === [ 'fay@example.com' ], 'retimed slot keeps a b
 
 // Rows added in the browser have no loaded state: saved as typed.
 $form   = admin_form( 811 );
-$form[] = $slot( '15:00', 2 ) + [ 'attendees' => [] ];
+$form[] = $slot( '15:00', 2 ) + [ 'loaded_id' => '' ];
 $form[2]['attendees'] = [ [ 'name' => 'Gus', 'email' => 'gus@example.com' ] ];
 save_event( 811, $NONCE + [ 'dcs_meeting_mode' => 'booking', 'slots' => $form ] );
 ok( emails_at( 811, '15:00' ) === [ 'gus@example.com' ], 'new browser-added slot saved as typed' );
@@ -175,5 +175,80 @@ ok( slots( 811 ) === $before, 'slots untouched' );
 $r = book( 811, 'hal', '10:00' );
 ok( $r && ! $r->ok && str_contains( (string) $r->data, 'busy' ), 'public booking reports busy instead of writing unlocked' );
 $GLOBALS['_lock_busy'] = false;
+
+// ---------------------------------------------------------------------------
+section( 'E. Slot identity comes from the row, not the start time (2.4.4)' );
+
+// Sessions with two parts run in parallel at the same time (two rooms).
+$P = [ 'dcs_parts_present' => '1', 'parts' => [
+    [ 'id' => 'part_room1aaaa', 'title' => 'Room 1' ],
+    [ 'id' => 'part_room2bbbb', 'title' => 'Room 2' ],
+] ];
+$room = fn( $part, $time = '09:00' ) => $slot( $time, 5 ) + [ 'part' => $part ];
+make_event( 820, 'sessions', 'Parallel rooms' );
+save_event( 820, $NONCE + $P + [ 'dcs_meeting_mode' => 'sessions', 'dcs_sessions_attendance' => 'any',
+    'slots' => [ $room( 'part_room1aaaa' ), $room( 'part_room2bbbb' ) ] ] );
+function by_part( $id, $part ) {
+    foreach ( slots( $id ) as $s ) if ( ( $s['part'] ?? '' ) === $part ) return $s;
+    return null;
+}
+$r1 = by_part( 820, 'part_room1aaaa' )['id'];
+$r2 = by_part( 820, 'part_room2bbbb' )['id'];
+ok( $r1 !== '' && $r2 !== '' && $r1 !== $r2, 'two new slots at the same time get different ids' );
+
+ajax( [ 'event_id' => 820, 'name' => 'Ann', 'email' => 'ann@example.com', 'part_slots' => [ $r1 ] ] );
+ajax( [ 'event_id' => 820, 'name' => 'Ben', 'email' => 'ben@example.com', 'part_slots' => [ $r2 ] ] );
+
+$form = admin_form( 820 );
+$form[1]['details'] = [ 'format' => 'in_person', 'location' => 'Room 2, east wing', 'url' => '', 'meeting_id' => '', 'passcode' => '', 'dial_in' => '', 'notes' => '' ];
+save_event( 820, $NONCE + $P + [ 'dcs_meeting_mode' => 'sessions', 'slots' => $form ] );
+ok( by_part( 820, 'part_room1aaaa' )['id'] === $r1 && by_part( 820, 'part_room2bbbb' )['id'] === $r2, 'admin save keeps both same-time slots\' ids (no collision)' );
+ok( array_column( by_part( 820, 'part_room1aaaa' )['attendees'], 'email' ) === [ 'ann@example.com' ]
+    && array_column( by_part( 820, 'part_room2bbbb' )['attendees'], 'email' ) === [ 'ben@example.com' ], 'each person stays in their own room' );
+$md = get_post_meta( 820, '_meeting_details', true );
+ok( array_keys( $md['slots'] ) === [ $r2 ], 'override lands on the room it was entered for only' );
+ok( dcs_slot_details( 820, by_part( 820, 'part_room1aaaa' ) )['location'] === '', 'other room does not pick up that override' );
+
+// A form rendered before 2.4.4 (no loaded_id): start-time fallback, each id used once.
+$legacy = admin_form( 820 );
+foreach ( $legacy as &$row ) unset( $row['loaded_id'], $row['loaded_att'] );
+unset( $row );
+save_event( 820, $NONCE + $P + [ 'dcs_meeting_mode' => 'sessions', 'slots' => $legacy ] );
+$ids = array_column( slots( 820 ), 'id' );
+ok( $ids === [ $r1, $r2 ], 'legacy form: same-time slots matched by start, each existing id used once' );
+
+// Browser-added row at the same time as an existing slot, posted FIRST.
+$form = admin_form( 820 );
+$new  = $room( 'part_room1aaaa' ) + [ 'loaded_id' => '' ];
+save_event( 820, $NONCE + $P + [ 'dcs_meeting_mode' => 'sessions', 'slots' => array_merge( [ $new ], $form ) ] );
+$s = slots( 820 );
+ok( count( $s ) === 3 && $s[1]['id'] === $r1 && $s[2]['id'] === $r2, 'existing slots keep their ids even when a new same-time row comes first' );
+ok( ! in_array( $s[0]['id'], [ $r1, $r2 ], true ), 'browser-added row gets a fresh id' );
+ok( count( array_unique( array_column( $s, 'id' ) ) ) === 3, 'all ids unique' );
+
+// Forged form naming the same slot twice: only the first row gets it.
+$form = admin_form( 820 );
+$form[2]['loaded_id'] = $form[1]['loaded_id'];
+save_event( 820, $NONCE + $P + [ 'dcs_meeting_mode' => 'sessions', 'slots' => $form ] );
+ok( count( array_unique( array_column( slots( 820 ), 'id' ) ) ) === 3, 'duplicate loaded_id: second row gets a new id' );
+
+// Changing a slot's time keeps its id (with the hidden field).
+make_event( 821, 'poll', 'Retime' );
+save_event( 821, $NONCE + [ 'dcs_meeting_mode' => 'poll', 'slots' => [ $slot( '09:00' ), $slot( '12:00' ) ] ] );
+$noon = key_at( 821, '12:00' );
+vote( 821, 'ivy', [ '12:00' ] );
+$form = admin_form( 821 );
+$form[1]['details'] = [ 'format' => 'online', 'location' => '', 'url' => 'https://zoom.us/j/9', 'meeting_id' => '', 'passcode' => '', 'dial_in' => '', 'notes' => '' ];
+save_event( 821, $NONCE + [ 'dcs_meeting_mode' => 'poll', 'slots' => $form ] );
+$form = admin_form( 821 );
+$form[1]['time'] = '13:00';
+save_event( 821, $NONCE + $CLOSE + [ 'dcs_meeting_mode' => 'poll', 'slots' => $form, 'dcs_selected_slot_index' => '1' ] );
+ok( key_at( 821, '13:00' ) === $noon, 'retimed slot keeps its id' );
+ok( emails_at( 821, '13:00' ) === [ 'ivy@example.com' ], 'votes stay with it' );
+ok( array_keys( get_post_meta( 821, '_meeting_details', true )['slots'] ) === [ $noon ], 'its override stays with it' );
+ok( get_post_meta( 821, '_poll_selected_slot_id', true ) === $noon, 'closing on it records the same id' );
+
+$foot = render( fn() => DCS_Admin::admin_footer_scripts() );
+ok( str_contains( $foot, '[loaded_id]" value="">' ), 'browser-added slots carry a blank loaded_id' );
 
 finish();

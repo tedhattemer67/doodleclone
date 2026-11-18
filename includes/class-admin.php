@@ -196,9 +196,10 @@ class DCS_Admin {
                 <?php self::render_part_select( "slots[{$i}][part]", dcs_slot_part_id( $slot, $parts ), $parts ); ?>
 
                 <?php
-                // What this slot looked like when the page loaded, so
-                // save_slots() can tell responses that arrived (or were
-                // changed) while the page was open apart from edits made here.
+                // The slot's id — save_slots() keeps it for this row, even if
+                // the date/time is changed — and its attendees as the page
+                // loaded them, so responses that arrived (or were changed)
+                // while the page was open can be told apart from edits here.
                 ?>
                 <input type="hidden" name="slots[<?php echo $i; ?>][loaded_id]" value="<?php echo esc_attr( (string) ( $slot['id'] ?? '' ) ); ?>">
                 <input type="hidden" name="slots[<?php echo $i; ?>][loaded_att]" value="<?php echo esc_attr( implode( ',', self::attendee_emails( $slot ) ) ); ?>">
@@ -885,12 +886,50 @@ class DCS_Admin {
             }
         }
 
+        $is_row = fn( $s ) => is_array( $s ) && ! empty( $s['date'] ) && ! empty( $s['time'] );
+
+        // Slot identity, pass 1: a row rendered from a saved slot carries that
+        // slot's id (loaded_id) and keeps it, even if its date/time changed.
+        // Each id is claimed at most once, and all claims happen before any
+        // fallback below, so a start-time match can never steal an id that a
+        // row named explicitly.
+        $row_ids = []; // posted row key => claimed existing slot id
+        $used    = []; // slot id => true, for every id assigned in this save
+        foreach ( $posted_slots as $r => $s ) {
+            if ( ! $is_row( $s ) ) continue;
+            $lid = sanitize_text_field( (string) ( $s['loaded_id'] ?? '' ) );
+            if ( $lid !== '' && isset( $existing_by_id[ $lid ] ) && ! isset( $used[ $lid ] ) ) {
+                $row_ids[ $r ] = $lid;
+                $used[ $lid ]  = true;
+            }
+        }
+
         $clean     = [];
         $overrides = [];
-        foreach ( $posted_slots as $s ) {
-            if ( ! is_array( $s ) || empty( $s['date'] ) || empty( $s['time'] ) ) continue;
+        foreach ( $posted_slots as $r => $s ) {
+            if ( ! $is_row( $s ) ) continue;
 
             $start_ts = dcs_epoch_from_local( sanitize_text_field( $s['date'] ), sanitize_text_field( $s['time'] ) );
+
+            // Slot identity, pass 2: rows that didn't claim an id above.
+            //  - No loaded_id field at all: a form rendered before 2.4.4.
+            //    Fall back to matching an existing slot by start time — the
+            //    old behaviour — but only among ids nobody has claimed yet.
+            //  - loaded_id present (blank for a row added in the browser, or
+            //    naming a slot that no longer exists): a new slot, new id.
+            $slot_id = $row_ids[ $r ] ?? '';
+            if ( $slot_id === '' && ! array_key_exists( 'loaded_id', $s ) ) {
+                foreach ( $existing_by_id as $eid => $esl ) {
+                    if ( ! isset( $used[ $eid ] ) && intval( $esl['start'] ?? 0 ) === $start_ts ) {
+                        $slot_id = (string) $eid;
+                        break;
+                    }
+                }
+            }
+            if ( $slot_id === '' ) {
+                do { $slot_id = uniqid( 'slot_' ); } while ( isset( $existing_by_id[ $slot_id ] ) || isset( $used[ $slot_id ] ) );
+            }
+            $used[ $slot_id ] = true;
 
             // Sanitize attendees
             $attendees = [];
@@ -903,24 +942,16 @@ class DCS_Admin {
             }
 
             // The form holds the attendee list as it was when the page
-            // loaded. Fold in public responses made since then.
-            $attendees = self::merge_live_attendees( $attendees, $s, $existing_by_id );
+            // loaded. Fold in public responses made since then — only for a
+            // row that actually claimed its loaded slot in pass 1.
+            if ( isset( $row_ids[ $r ] ) ) {
+                $attendees = self::merge_live_attendees( $attendees, $s, $existing_by_id[ $row_ids[ $r ] ] );
+            }
 
             $dur_mins = isset( $s['duration_minutes'] ) && $s['duration_minutes'] !== '' ? intval( $s['duration_minutes'] ) : 0;
 
-            // Try to preserve the existing slot ID (so voters can still edit)
-            // Match by start timestamp first, then fall back to generating a new ID.
-            $slot_id = uniqid( 'slot_' );
-            foreach ( $existing_by_id as $eid => $esl ) {
-                if ( intval( $esl['start'] ?? 0 ) === $start_ts ) {
-                    $slot_id = $eid;
-                    break;
-                }
-            }
-
             // Details override travels in the same form row as the slot, so it
-            // is keyed by this row's final id — survives date/time edits that
-            // mint a new id above.
+            // is keyed by this row's final id.
             if ( isset( $s['details'] ) ) {
                 $ov = dcs_sanitize_meeting_details( $s['details'], true );
                 if ( dcs_meeting_details_has_content( $ov ) ) $overrides[ $slot_id ] = $ov;
@@ -977,14 +1008,12 @@ class DCS_Admin {
      *  - Everything else is the organiser's edit: removals and additions made
      *    in the form win.
      *
-     * Rows without the loaded_* fields (added in the browser, or a form from
-     * before 2.4.3) have nothing to merge against; the form is used as is.
+     * Only called for a row that claimed its loaded slot ($live is that slot
+     * as stored now). Rows added in the browser, or from a form rendered
+     * before 2.4.3, have nothing to merge against; the form is used as is.
      */
-    private static function merge_live_attendees( array $form, array $row, array $existing_by_id ): array {
-        $loaded_id = sanitize_text_field( (string) ( $row['loaded_id'] ?? '' ) );
-        if ( $loaded_id === '' || ! isset( $row['loaded_att'] ) || ! isset( $existing_by_id[ $loaded_id ] ) ) {
-            return $form;
-        }
+    private static function merge_live_attendees( array $form, array $row, array $live ): array {
+        if ( ! isset( $row['loaded_att'] ) ) return $form;
 
         $loaded = [];
         foreach ( explode( ',', (string) $row['loaded_att'] ) as $e ) {
@@ -993,7 +1022,7 @@ class DCS_Admin {
         }
 
         $now = [];
-        foreach ( (array) ( $existing_by_id[ $loaded_id ]['attendees'] ?? [] ) as $a ) {
+        foreach ( (array) ( $live['attendees'] ?? [] ) as $a ) {
             if ( ! is_array( $a ) ) continue;
             $n = dcs_normalize_email( (string) ( $a['email'] ?? '' ) );
             if ( $n !== '' && ! isset( $now[ $n ] ) ) $now[ $n ] = $a;
@@ -1352,6 +1381,9 @@ class DCS_Admin {
             }
             function slotBlock(i) {
                 return '<div class="dcs-slot" data-index="'+i+'">'
+                    // Blank loaded_id = a new slot: the server gives it a fresh
+                    // id instead of guessing one from its start time.
+                    + '<input type="hidden" name="slots['+i+'][loaded_id]" value="">'
                     + '<label>Date:</label> <input type="date" name="slots['+i+'][date]" required><br>'
                     + '<label>Time:</label> <input type="time" name="slots['+i+'][time]" required>'
                     + '<label>Duration:</label> '+durationSelect('slots['+i+'][duration_minutes]','')+' <br>'

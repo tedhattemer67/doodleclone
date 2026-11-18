@@ -112,7 +112,7 @@ ok( ! str_contains( $e2['notes'], '<script>' ), 'script tags stripped from notes
 $moved = $base_post; $moved['slots'][1]['time'] = '15:00';
 save_event( 100, $moved );
 $s2 = slots( 100 ); $md2 = get_post_meta( 100, '_meeting_details', true );
-ok( $s2[1]['id'] !== $id2, 'changing slot time mints a new slot id (existing behaviour)' );
+ok( $s2[1]['id'] !== $id2, 'form without loaded_id (pre-2.4.4): changing slot time mints a new slot id' );
 ok( array_keys( $md2['slots'] ) === [ $s2[1]['id'] ], 'override follows the slot to its new id; old id pruned' );
 $id2 = $s2[1]['id'];
 
