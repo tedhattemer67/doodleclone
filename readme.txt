@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.4
+Stable tag: 2.4.5
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,21 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.5 =
+* Security: password-protected events now behave like other protected
+  posts. Until the visitor enters the password, the event page shows only
+  WordPress's password prompt: no time slots, form, or closed-poll notice
+  with the chosen time. Previously the booking form was shown below the
+  prompt and anyone could sign up.
+* Security: bookings, poll votes and Sessions sign-ups for a
+  password-protected event are refused unless the browser has entered the
+  password, so they can't be sent straight to the booking endpoint.
+* `[doodle_schedule_overview]` leaves password-protected events out,
+  except for people who can edit that event.
+* Note: edit links for a protected event ask for the password first. If
+  you add a password to an event people have already signed up for,
+  share it with them.
 
 = 2.4.4 =
 * Fix: two slots at the same date and time (e.g. Sessions parts held in
@@ -343,6 +358,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.5 =
+Security fix: password-protected events no longer show the sign-up form or
+accept responses until the password is entered.
 
 = 2.4.4 =
 Fixes slots at the same time being mixed up on save, and keeps a slot's

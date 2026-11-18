@@ -15,7 +15,7 @@ $GLOBALS['_posts']      = [];
 $GLOBALS['_opts']       = [ 'admin_email' => 'admin@example.com', 'date_format' => 'F j, Y', 'time_format' => 'g:i a' ];
 
 class WP_Post {
-    public $ID; public $post_title; public $post_status = 'publish'; public $post_type = 'meeting_event'; public $post_author = 0;
+    public $ID; public $post_title; public $post_status = 'publish'; public $post_type = 'meeting_event'; public $post_author = 0; public $post_password = '';
     function __construct( $id, $title ) { $this->ID = $id; $this->post_title = $title; }
 }
 class WP_Error {
@@ -143,6 +143,12 @@ function get_posts( $args ) { return array_values( $GLOBALS['_posts'] ); }
 function get_post_type( $id ) { return isset( $GLOBALS['_posts'][ is_object( $id ) ? $id->ID : $id ] ) ? 'meeting_event' : false; }
 function get_post_status( $id ) { return $GLOBALS['_posts'][ $id ]->post_status ?? false; }
 function get_the_title( $p ) { $id = is_object( $p ) ? $p->ID : $p; return $GLOBALS['_posts'][ $id ]->post_title ?? ''; }
+// Password protection: $GLOBALS['_postpass'][ id ] = true simulates a browser
+// whose wp-postpass cookie holds the right password for that post.
+function post_password_required( $p = null ) {
+    $post = get_post( $p ?? get_the_ID() );
+    return $post && $post->post_password !== '' && empty( $GLOBALS['_postpass'][ $post->ID ] );
+}
 function get_permalink( $p ) { $id = is_object( $p ) ? $p->ID : $p; return 'https://example.com/meeting_event/' . $id . '/'; }
 function get_edit_post_link( $id, $c = '' ) { return 'https://example.com/wp-admin/post.php?post=' . $id; }
 function home_url() { return 'https://example.com'; }

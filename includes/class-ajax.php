@@ -57,6 +57,15 @@ class DCS_Ajax {
             wp_send_json_error( __( 'Invalid event.', 'doodle-clone-scheduler' ) );
         }
 
+        // Security: a password-protected event only takes submissions from a
+        // browser that has entered the password. WordPress remembers that in
+        // the wp-postpass_* cookie, which this same-site AJAX request carries,
+        // so post_password_required() works here just as on the page. Without
+        // this, anyone with the event ID could post straight to this endpoint.
+        if ( post_password_required( $event_id ) ) {
+            wp_send_json_error( __( 'This event is password protected. Please refresh the page and enter the password.', 'doodle-clone-scheduler' ), 403 );
+        }
+
         // Security: separate, tighter throttle per event+email — stops repeated
         // attempts against one target address even when spread across many IPs
         // (relevant once hijack attempts are blocked below, since an attacker

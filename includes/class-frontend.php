@@ -53,6 +53,11 @@ class DCS_Frontend {
         if ( ! is_singular( 'meeting_event' ) || ! in_the_loop() ) return $content;
 
         $post_id = get_the_ID();
+
+        // Password-protected event and the visitor hasn't entered the
+        // password: $content is WordPress's password prompt. Show only that —
+        // no slots, form or closed-poll notice (which reveals the chosen time).
+        if ( post_password_required( $post_id ) ) return $content;
         $mode    = get_post_meta( $post_id, '_meeting_mode', true ) ?: 'booking';
         $slots   = get_post_meta( $post_id, '_meeting_slots', true );
         if ( ! is_array( $slots ) || empty( $slots ) ) {
@@ -600,6 +605,13 @@ class DCS_Frontend {
 
         $output = '<div class="dcs-schedule-overview">';
         foreach ( $events as $event ) {
+            // Password-protected events are left out entirely — their title
+            // and booking status included — except for people who can edit
+            // that event. Deliberately not based on the visitor's password
+            // cookie: a page cache could store the table as one visitor saw it
+            // and serve it to everyone.
+            if ( $event->post_password !== '' && ! current_user_can( 'edit_post', $event->ID ) ) continue;
+
             $slots = get_post_meta( $event->ID, '_meeting_slots', true );
             if ( ! is_array( $slots ) || empty( $slots ) ) continue;
             usort( $slots, fn( $a, $b ) => ( $a['start'] ?? 0 ) - ( $b['start'] ?? 0 ) );

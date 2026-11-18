@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.4.4
+- **Version:** 2.4.5
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -303,6 +303,9 @@ table with a status per slot:
 
 - Logged-in users who can edit posts see **who** booked each slot.
 - Everyone else sees only **Booked** / **Available**.
+- **Password-protected** events are left out, except for people who can edit
+  that event. On the event's own page, the slots and form appear only after
+  the visitor enters the password, and sign-ups are refused without it.
 
 ---
 
