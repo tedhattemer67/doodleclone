@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.2
+Stable tag: 2.4.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,19 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.3 =
+* Fix: clicking Update (or Close Poll / Close Registration) on an event's
+  edit page could erase responses made while the page was open. Votes,
+  bookings and sign-ups received in that time are now kept, and people
+  who moved to another time aren't put back. The organiser's own
+  removals and additions in the form still apply.
+* Fix: two 1-on-1 bookings for different slots made at almost the same
+  moment could erase one another, though both people were sent a
+  confirmation. Every change to an event's slots (bookings, votes,
+  sign-ups, admin saves, closing a poll) now waits on one lock per event.
+* If an admin save can't get that lock within 5 seconds, it stops with a
+  "click Update again" message instead of saving without the lock.
 
 = 2.4.2 =
 * New: the event's owner gets a "New response: <event>" email when someone
@@ -318,6 +331,11 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.3 =
+Fixes lost bookings and votes when an event is saved from an edit page
+that was opened before people responded, and when two 1-on-1 bookings
+arrive at the same moment. Recommended for all sites.
 
 = 2.4.2 =
 Organisers are now emailed when someone new responds to a poll or signs up

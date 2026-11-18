@@ -195,6 +195,14 @@ class DCS_Admin {
                 <input type="number" name="slots[<?php echo $i; ?>][max]" value="<?php echo esc_attr( (string) ( dcs_slot_capacity( $slot ) ?? '' ) ); ?>" min="1" placeholder="<?php esc_attr_e( 'No limit', 'doodle-clone-scheduler' ); ?>" style="width:7em;">
                 <?php self::render_part_select( "slots[{$i}][part]", dcs_slot_part_id( $slot, $parts ), $parts ); ?>
 
+                <?php
+                // What this slot looked like when the page loaded, so
+                // save_slots() can tell responses that arrived (or were
+                // changed) while the page was open apart from edits made here.
+                ?>
+                <input type="hidden" name="slots[<?php echo $i; ?>][loaded_id]" value="<?php echo esc_attr( (string) ( $slot['id'] ?? '' ) ); ?>">
+                <input type="hidden" name="slots[<?php echo $i; ?>][loaded_att]" value="<?php echo esc_attr( implode( ',', self::attendee_emails( $slot ) ) ); ?>">
+
                 <div class="dcs-attendees">
                 <?php
                 $attendees = ( ! empty( $slot['attendees'] ) && is_array( $slot['attendees'] ) )
@@ -851,6 +859,24 @@ class DCS_Admin {
         // sanitizing so values like "O'Brien" are not stored as "O\'Brien".
         $posted_slots = wp_unslash( $_POST['slots'] );
 
+        // Parts were saved at priority 8, so this is the current list.
+        $parts = dcs_get_parts( $post_id );
+
+        // The same per-event lock as public bookings/votes/sign-ups, held
+        // across a fresh read, the merge and the write — so a response that
+        // lands while this save runs can't be overwritten either.
+        $overrides = self::locked_or_die( $post_id, function () use ( $post_id, $posted_slots, $parts ) {
+            wp_cache_delete( $post_id, 'post_meta' );
+            return self::write_posted_slots( $post_id, $posted_slots, $parts );
+        } );
+        self::$pending_overrides = $overrides;
+    }
+
+    /**
+     * save_slots() body; runs under the event lock. Returns the per-slot
+     * details overrides keyed by final slot id.
+     */
+    private static function write_posted_slots( int $post_id, array $posted_slots, array $parts ): array {
         $existing_slots = get_post_meta( $post_id, '_meeting_slots', true );
         $existing_by_id = [];
         if ( is_array( $existing_slots ) ) {
@@ -859,13 +885,10 @@ class DCS_Admin {
             }
         }
 
-        // Parts were saved at priority 8, so this is the current list.
-        $parts = dcs_get_parts( $post_id );
-
         $clean     = [];
         $overrides = [];
         foreach ( $posted_slots as $s ) {
-            if ( empty( $s['date'] ) || empty( $s['time'] ) ) continue;
+            if ( ! is_array( $s ) || empty( $s['date'] ) || empty( $s['time'] ) ) continue;
 
             $start_ts = dcs_epoch_from_local( sanitize_text_field( $s['date'] ), sanitize_text_field( $s['time'] ) );
 
@@ -878,6 +901,10 @@ class DCS_Admin {
                     if ( $n || $e ) $attendees[] = [ 'name' => $n, 'email' => $e ];
                 }
             }
+
+            // The form holds the attendee list as it was when the page
+            // loaded. Fold in public responses made since then.
+            $attendees = self::merge_live_attendees( $attendees, $s, $existing_by_id );
 
             $dur_mins = isset( $s['duration_minutes'] ) && $s['duration_minutes'] !== '' ? intval( $s['duration_minutes'] ) : 0;
 
@@ -924,7 +951,88 @@ class DCS_Admin {
         }
 
         update_post_meta( $post_id, '_meeting_slots', $clean );
-        self::$pending_overrides = $overrides;
+        return $overrides;
+    }
+
+    /** Normalised attendee emails of a slot, in order, without duplicates. */
+    private static function attendee_emails( array $slot ): array {
+        $out = [];
+        foreach ( (array) ( $slot['attendees'] ?? [] ) as $a ) {
+            $n = dcs_normalize_email( is_array( $a ) ? (string) ( $a['email'] ?? '' ) : '' );
+            if ( $n !== '' ) $out[ $n ] = true;
+        }
+        return array_keys( $out );
+    }
+
+    /**
+     * Three-way merge of one slot's attendees: the list as the page loaded it
+     * (loaded_att), the list as the organiser submitted it, and the list in
+     * the database right now. People are matched by normalised email.
+     *
+     *  - Someone in the database now but not when the page loaded responded
+     *    while the page was open: kept (appended), unless the form has them.
+     *  - Someone who was there when the page loaded but has since left the
+     *    slot (moved their vote, changed their session) stays gone, even
+     *    though the stale form still lists them.
+     *  - Everything else is the organiser's edit: removals and additions made
+     *    in the form win.
+     *
+     * Rows without the loaded_* fields (added in the browser, or a form from
+     * before 2.4.3) have nothing to merge against; the form is used as is.
+     */
+    private static function merge_live_attendees( array $form, array $row, array $existing_by_id ): array {
+        $loaded_id = sanitize_text_field( (string) ( $row['loaded_id'] ?? '' ) );
+        if ( $loaded_id === '' || ! isset( $row['loaded_att'] ) || ! isset( $existing_by_id[ $loaded_id ] ) ) {
+            return $form;
+        }
+
+        $loaded = [];
+        foreach ( explode( ',', (string) $row['loaded_att'] ) as $e ) {
+            $n = dcs_normalize_email( $e );
+            if ( $n !== '' ) $loaded[ $n ] = true;
+        }
+
+        $now = [];
+        foreach ( (array) ( $existing_by_id[ $loaded_id ]['attendees'] ?? [] ) as $a ) {
+            if ( ! is_array( $a ) ) continue;
+            $n = dcs_normalize_email( (string) ( $a['email'] ?? '' ) );
+            if ( $n !== '' && ! isset( $now[ $n ] ) ) $now[ $n ] = $a;
+        }
+
+        $out     = [];
+        $in_form = [];
+        foreach ( $form as $a ) {
+            $n = dcs_normalize_email( $a['email'] );
+            if ( $n !== '' && isset( $loaded[ $n ] ) && ! isset( $now[ $n ] ) ) continue; // left since page load
+            if ( $n !== '' ) $in_form[ $n ] = true;
+            $out[] = $a;
+        }
+        foreach ( $now as $n => $a ) {
+            if ( isset( $loaded[ $n ] ) || isset( $in_form[ $n ] ) ) continue;
+            $out[] = [
+                'name'  => sanitize_text_field( (string) ( $a['name'] ?? '' ) ),
+                'email' => sanitize_email( (string) ( $a['email'] ?? '' ) ),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Runs $fn under the event lock. If the lock can't be had (responses are
+     * being written at that exact moment and didn't finish within the
+     * timeout), stops the save with a message rather than writing without
+     * it or silently dropping the organiser's slot changes.
+     */
+    private static function locked_or_die( int $post_id, callable $fn ) {
+        $result = dcs_with_lock( dcs_event_lock_key( $post_id ), $fn );
+        if ( is_wp_error( $result ) ) {
+            wp_die(
+                esc_html__( 'Meeting slots were not saved because responses to this event were being recorded at the same moment. Go back and click Update again.', 'doodle-clone-scheduler' ),
+                esc_html__( 'Please try again', 'doodle-clone-scheduler' ),
+                [ 'response' => 503, 'back_link' => true ]
+            );
+        }
+        return $result;
     }
 
     /**
@@ -1079,12 +1187,20 @@ class DCS_Admin {
 
         if ( $sel_idx < 0 ) return;
 
-        $slots = get_post_meta( $post_id, '_meeting_slots', true );
-        if ( ! is_array( $slots ) || ! isset( $slots[ $sel_idx ] ) ) return;
+        $winner = self::locked_or_die( $post_id, function () use ( $post_id, $sel_idx ) {
+            wp_cache_delete( $post_id, 'post_meta' );
+            $slots = get_post_meta( $post_id, '_meeting_slots', true );
+            if ( ! is_array( $slots ) || ! isset( $slots[ $sel_idx ] ) ) return null;
 
-        $winner = dcs_normalize_slot_timestamps( $slots[ $sel_idx ] );
-        $slots[ $sel_idx ] = $winner;
-        update_post_meta( $post_id, '_meeting_slots', $slots );
+            $winner = dcs_normalize_slot_timestamps( $slots[ $sel_idx ] );
+            $slots[ $sel_idx ] = $winner;
+            update_post_meta( $post_id, '_meeting_slots', $slots );
+            // Closed inside the lock: no vote can slip in after the winner is
+            // chosen but before the poll stops accepting responses.
+            update_post_meta( $post_id, '_poll_status', 'closed' );
+            return $winner;
+        } );
+        if ( ! is_array( $winner ) ) return;
 
         update_post_meta( $post_id, '_poll_status',                 'closed' );
         update_post_meta( $post_id, '_poll_selected_slot_index',    $sel_idx );
@@ -1119,20 +1235,25 @@ class DCS_Admin {
         if ( get_post_type( $post_id ) !== 'meeting_event' ) return;
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
 
-        $slots = get_post_meta( $post_id, '_meeting_slots', true );
-        if ( ! is_array( $slots ) || empty( $slots ) ) return;
+        // Best-effort repair: if the lock is busy, skip it rather than risk
+        // overwriting a response. The next save normalises again.
+        dcs_with_lock( dcs_event_lock_key( $post_id ), function () use ( $post_id ) {
+            wp_cache_delete( $post_id, 'post_meta' );
+            $slots = get_post_meta( $post_id, '_meeting_slots', true );
+            if ( ! is_array( $slots ) || empty( $slots ) ) return;
 
-        $changed = false;
-        foreach ( $slots as $i => $slot ) {
-            $normalized = dcs_normalize_slot_timestamps( $slot );
-            if ( $normalized !== $slot ) {
-                $slots[ $i ] = $normalized;
-                $changed = true;
+            $changed = false;
+            foreach ( $slots as $i => $slot ) {
+                $normalized = dcs_normalize_slot_timestamps( $slot );
+                if ( $normalized !== $slot ) {
+                    $slots[ $i ] = $normalized;
+                    $changed = true;
+                }
             }
-        }
-        if ( $changed ) {
-            update_post_meta( $post_id, '_meeting_slots', $slots );
-        }
+            if ( $changed ) {
+                update_post_meta( $post_id, '_meeting_slots', $slots );
+            }
+        } );
     }
 
     /**
@@ -1143,6 +1264,16 @@ class DCS_Admin {
         if ( get_post_type( $post_id ) !== 'meeting_event' ) return;
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
 
+        // Best-effort repair, skipped if the lock is busy (see normalize_slots()).
+        dcs_with_lock( dcs_event_lock_key( $post_id ), function () use ( $post_id ) {
+            wp_cache_delete( $post_id, 'post_meta' );
+            self::merge_durations_locked( $post_id );
+        } );
+        delete_post_meta( $post_id, '_dcs_pre_save_slots' );
+    }
+
+    /** merge_durations_from_snapshot() body; runs under the event lock. */
+    private static function merge_durations_locked( int $post_id ): void {
         $slots    = get_post_meta( $post_id, '_meeting_slots', true );
         $snapshot = get_post_meta( $post_id, '_dcs_pre_save_slots', true );
         if ( ! is_array( $slots ) || ! is_array( $snapshot ) ) return;
@@ -1184,7 +1315,6 @@ class DCS_Admin {
         if ( $changed ) {
             update_post_meta( $post_id, '_meeting_slots', $slots );
         }
-        delete_post_meta( $post_id, '_dcs_pre_save_slots' );
     }
 
     /** Runs after Gutenberg REST saves to ensure normalization still happens. */

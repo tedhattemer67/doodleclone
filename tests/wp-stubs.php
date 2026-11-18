@@ -175,9 +175,18 @@ function wp_mail( $to, $subj, $body, $headers = [], $att = [] ) {
 }
 function wp_generate_password() { return 'x'; }
 
+// Advisory locks: every GET_LOCK name is recorded in $GLOBALS['_locks'];
+// set $GLOBALS['_lock_busy'] = true to make GET_LOCK time out.
 class FakeWpdb {
-    function prepare( $q, ...$a ) { return $q; }
-    function get_var( $q ) { return '1'; }
+    private $last = '';
+    function prepare( $q, ...$a ) {
+        if ( str_contains( $q, 'GET_LOCK' ) ) $GLOBALS['_locks'][] = $a[0];
+        $this->last = $q;
+        return $q;
+    }
+    function get_var( $q ) { return str_contains( $q, 'GET_LOCK' ) && ! empty( $GLOBALS['_lock_busy'] ) ? '0' : '1'; }
     function query( $q ) { return true; }
 }
+class WpDie extends Exception {}
+function wp_die( $msg = '', $title = '', $args = [] ) { throw new WpDie( (string) $msg ); }
 $GLOBALS['wpdb'] = new FakeWpdb();

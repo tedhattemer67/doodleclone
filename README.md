@@ -5,7 +5,7 @@ hosted schedulers. Run 1-on-1 bookings, group availability polls and
 multi-part session series from your own site. Attendees don't need accounts,
 and visitors' browsers make no third-party requests.
 
-- **Version:** 2.4.2
+- **Version:** 2.4.3
 - **Requires:** WordPress 6.0+, PHP 8.0+, MySQL/MariaDB (uses `GET_LOCK`)
 - **Changelog:** see [`readme.txt`](readme.txt)
 
@@ -432,8 +432,13 @@ The public form submits to `admin-ajax.php?action=dcs_book_slot`.
   that rejects submissions made within 3 seconds of page load.
 - **Rate limits:** 20 submissions per IP per 5 minutes, and 8 per event+email
   per 10 minutes.
-- **No overbooking:** capacity checks and writes run under MySQL advisory locks
-  (`GET_LOCK`). These release automatically if a request dies.
+- **No overbooking or lost responses:** every change to an event's slots
+  (bookings, votes, sign-ups, and admin saves) runs under one MySQL advisory
+  lock per event (`GET_LOCK`). It releases automatically if a request dies.
+- **Saving from an edit page that's been open a while is safe:** responses
+  that arrive while the organiser has the page open are kept on Update, and
+  people who moved to another time aren't put back. The organiser's own
+  removals and additions still apply.
 - **One booking per person** on 1-on-1 events, matched on a normalised email,
   so Gmail `j.doe+x@gmail.com` and `jdoe@gmail.com` count as the same person.
 - Nonces on every admin action and on the public form.

@@ -107,7 +107,7 @@ class DCS_Ajax {
         // silently overwrite the first voter's selections (lost update) —
         // plausible in practice, since poll invites/reminders tend to prompt
         // a burst of near-simultaneous responses.
-        $result = dcs_with_lock( 'poll_' . $event_id, function () use ( $event_id, $name, $email, $email_lower, $selected_keys, $edit_token, $issued_key ) {
+        $result = dcs_with_lock( dcs_event_lock_key( $event_id ), function () use ( $event_id, $name, $email, $email_lower, $selected_keys, $edit_token, $issued_key ) {
             // A persistent object cache may be serving a copy of this post's
             // meta from before the lock was acquired — drop it so the read
             // below reflects what's actually in the database right now.
@@ -253,7 +253,7 @@ class DCS_Ajax {
         $edit_token = sanitize_text_field( wp_unslash( $_POST['dcs_edit_token'] ?? '' ) );
         $issued_key = '_dcs_token_issued_' . md5( $norm );
 
-        $result = dcs_with_lock( 'sessions_' . $event_id, function () use ( $event_id, $name, $email, $norm, $picked, $edit_token, $issued_key ) {
+        $result = dcs_with_lock( dcs_event_lock_key( $event_id ), function () use ( $event_id, $name, $email, $norm, $picked, $edit_token, $issued_key ) {
             // Drop any object-cached copy so the read reflects the DB right now.
             wp_cache_delete( $event_id, 'post_meta' );
 
@@ -375,13 +375,13 @@ class DCS_Ajax {
             wp_send_json_error( __( 'Please choose a time slot.', 'doodle-clone-scheduler' ) );
         }
 
-        // Correctness: hold a per-slot lock across the capacity check and the
-        // write. Without it, two requests for the last spot in a capped slot
-        // can both read the same attendee count, both pass the check, and both
-        // get confirmed — a classic check-then-write race that overbooks the
-        // slot. Scoped to this one slot so bookings for other slots aren't
-        // blocked by it.
-        $result = dcs_with_lock( 'book_' . $event_id . '_' . $slot_key, function () use ( $event_id, $name, $email, $slot_key ) {
+        // Correctness: hold the event lock across the duplicate-email check,
+        // the capacity check and the write. It must be the event-wide lock,
+        // not a per-slot one: the write below replaces the whole _meeting_slots
+        // array, so two bookings for *different* slots under separate locks
+        // would both read the same array and the second write would erase the
+        // first booking (and both people would still get a confirmation).
+        $result = dcs_with_lock( dcs_event_lock_key( $event_id ), function () use ( $event_id, $name, $email, $slot_key ) {
             // A persistent object cache may be serving a copy of this post's
             // meta from before the lock was acquired — drop it so the read
             // below reflects what's actually in the database right now.

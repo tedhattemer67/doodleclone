@@ -144,7 +144,7 @@ function dcs_upgrade_2_3_4(): bool {
         if ( ! in_array( $mode, [ 'poll', 'group' ], true ) ) continue;
 
         // Same lock as poll votes, so a vote arriving mid-upgrade isn't lost.
-        $done = dcs_with_lock( 'poll_' . $event->ID, function () use ( $event ) {
+        $done = dcs_with_lock( dcs_event_lock_key( $event->ID ), function () use ( $event ) {
             wp_cache_delete( $event->ID, 'post_meta' );
             $slots = get_post_meta( $event->ID, '_meeting_slots', true );
             if ( ! is_array( $slots ) ) return true;
@@ -897,6 +897,19 @@ function dcs_rate_limited( string $bucket, int $max_attempts, int $window_second
 // ---------------------------------------------------------------------------
 // Advisory locking (for short read-modify-write critical sections)
 // ---------------------------------------------------------------------------
+
+/**
+ * The one lock name for anything that rewrites an event's _meeting_slots.
+ *
+ * _meeting_slots is a single serialized array, so every writer — 1-on-1
+ * bookings, poll votes, Sessions sign-ups, the admin save chain and the data
+ * upgrade — reads the whole array and writes the whole array back. Two
+ * writers holding *different* locks (e.g. one per slot) can therefore still
+ * overwrite each other's changes. They must all share this one per-event lock.
+ */
+function dcs_event_lock_key( int $event_id ): string {
+    return 'event_' . $event_id;
+}
 
 /**
  * Runs $fn() while holding a MySQL session advisory lock for $key, and
