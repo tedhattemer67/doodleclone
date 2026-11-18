@@ -4,7 +4,7 @@ Tags: scheduling, meetings, polls, availability, booking
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 2.4.7
+Stable tag: 2.4.8
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,20 @@ you want that content gone, delete the Meeting Events yourself before or after
 removing the plugin.
 
 == Changelog ==
+
+= 2.4.8 =
+* Security: saving an event's slots, meeting type, attendance setting,
+  default duration or open/closed status now requires the edit screen's
+  nonce, so a forged request from another site can't change them in an
+  organiser's logged-in browser. The nonce is printed once at the top of
+  the edit form instead of inside the Meeting Details box.
+* Fix: the public form no longer fails on a page-cached copy (or a tab left
+  open) whose nonce has expired. The server marks the refusal "bad_nonce";
+  the form fetches a fresh nonce from a new, uncached dcs_fresh_nonce AJAX
+  action and resubmits once.
+* Fix: refusals sent with an HTTP error status (expired nonce, password-
+  protected event, rate limit) showed visitors "A network error occurred".
+  They now show the actual message.
 
 = 2.4.7 =
 * Fix: a poll vote naming a time that isn't one of the poll's slots is now
@@ -392,6 +406,10 @@ removing the plugin.
 * First version tracked in git.
 
 == Upgrade Notice ==
+
+= 2.4.8 =
+Event saves require the edit-screen nonce, and the public form recovers on
+its own from an expired nonce on cached pages.
 
 = 2.4.7 =
 Poll votes for unknown times are refused, people are matched on one email

@@ -15,7 +15,7 @@ function owned_event( $id, $mode, $author ) {
 function booking_event( $id, $author ) {
     global $D1;
     owned_event( $id, 'booking', $author );
-    save_event( $id, [ 'dcs_meeting_mode' => 'booking', 'slots' => [
+    save_event( $id, [ 'dcs_save_details_nonce' => 'nonce-dcs_save_details_action', 'dcs_meeting_mode' => 'booking', 'slots' => [
         [ 'date' => $D1, 'time' => '09:00', 'duration_minutes' => '60', 'max' => '1' ],
         [ 'date' => $D1, 'time' => '10:00', 'duration_minutes' => '60', 'max' => '1' ],
     ] ] );
@@ -83,7 +83,7 @@ ok( str_contains( $html, 'mailto:olive@example.com' ) && ! str_contains( $html, 
 section( 'E. New-response notice: Group poll (2.4.2)' );
 $D2 = date( 'Y-m-d', strtotime( '+11 days' ) );
 owned_event( 940, 'poll', 42 );
-save_event( 940, [ 'dcs_meeting_mode' => 'poll', 'slots' => [
+save_event( 940, [ 'dcs_save_details_nonce' => 'nonce-dcs_save_details_action', 'dcs_meeting_mode' => 'poll', 'slots' => [
     [ 'date' => $D2, 'time' => '15:00', 'duration_minutes' => '60', 'max' => '' ],
     [ 'date' => $D1, 'time' => '09:00', 'duration_minutes' => '60', 'max' => '' ],
     [ 'date' => $D1, 'time' => '12:00', 'duration_minutes' => '60', 'max' => '' ],
@@ -119,7 +119,7 @@ $r = $pvote( 'pam', [ $pkey( $D1, '09:00' ) ] );
 ok( $r && ! $r->ok && mails_to( 'olive@example.com' ) === [], 'refused submission (no edit link): no organiser email' );
 
 owned_event( 941, 'poll', 0 );
-save_event( 941, [ 'dcs_meeting_mode' => 'poll', 'slots' => [ [ 'date' => $D1, 'time' => '09:00', 'duration_minutes' => '60', 'max' => '' ] ] ] );
+save_event( 941, [ 'dcs_save_details_nonce' => 'nonce-dcs_save_details_action', 'dcs_meeting_mode' => 'poll', 'slots' => [ [ 'date' => $D1, 'time' => '09:00', 'duration_minutes' => '60', 'max' => '' ] ] ] );
 $GLOBALS['_mail'] = [];
 ajax( [ 'event_id' => 941, 'name' => 'Ned', 'email' => 'ned@example.com', 'slot_ids' => [ dcs_slot_key( slots( 941 )[0] ) ] ] );
 ok( count( mails_to( 'admin@example.com' ) ) === 1, 'poll with no owner: notice to site admin' );

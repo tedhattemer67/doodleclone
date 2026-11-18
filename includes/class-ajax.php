@@ -11,6 +11,21 @@ class DCS_Ajax {
     public static function init(): void {
         add_action( 'wp_ajax_dcs_book_slot',        [ __CLASS__, 'handle_booking' ] );
         add_action( 'wp_ajax_nopriv_dcs_book_slot', [ __CLASS__, 'handle_booking' ] );
+        add_action( 'wp_ajax_dcs_fresh_nonce',        [ __CLASS__, 'handle_fresh_nonce' ] );
+        add_action( 'wp_ajax_nopriv_dcs_fresh_nonce', [ __CLASS__, 'handle_fresh_nonce' ] );
+    }
+
+    /**
+     * Hands the form a current nonce when the one baked into the page has
+     * expired — typically a page cache serving a copy more than ~12–24h old,
+     * or a tab left open overnight. script.js calls this once after a
+     * 'bad_nonce' refusal and retries. admin-ajax.php isn't page-cached, and a
+     * nonce grants nothing on its own (every logged-out visitor gets the same
+     * one), so this needs no further checks.
+     */
+    public static function handle_fresh_nonce(): void {
+        nocache_headers();
+        wp_send_json_success( [ 'nonce' => wp_create_nonce( 'dcs_book_slot' ) ] );
     }
 
     // -------------------------------------------------------------------------
@@ -19,8 +34,13 @@ class DCS_Ajax {
 
     public static function handle_booking(): void {
         // Security: verify nonce before touching any data
+        // The 'bad_nonce' code tells script.js to fetch a fresh nonce and retry
+        // once, so a stale cached page doesn't fail; message is the fallback.
         if ( ! check_ajax_referer( 'dcs_book_slot', 'dcs_nonce', false ) ) {
-            wp_send_json_error( __( 'Security check failed. Please refresh the page and try again.', 'doodle-clone-scheduler' ), 403 );
+            wp_send_json_error( [
+                'code'    => 'bad_nonce',
+                'message' => __( 'Security check failed. Please refresh the page and try again.', 'doodle-clone-scheduler' ),
+            ], 403 );
         }
 
         // Anti-bot: reject on a filled honeypot field (a real visitor never

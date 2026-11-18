@@ -133,10 +133,11 @@ section( 'E. Saving still requires permission on that event' );
 $D1 = date( 'Y-m-d', strtotime( '+10 days' ) );
 unset( $GLOBALS['_user_caps'] ); $GLOBALS['_can'] = true;
 make_event( 800, 'booking', 'Org event' );
-save_event( 800, [ 'dcs_meeting_mode' => 'booking', 'slots' => [ [ 'date' => $D1, 'time' => '09:00', 'duration_minutes' => '60', 'max' => '1' ] ] ] );
+$NONCE = [ 'dcs_save_details_nonce' => 'nonce-dcs_save_details_action' ];
+save_event( 800, $NONCE + [ 'dcs_meeting_mode' => 'booking', 'slots' => [ [ 'date' => $D1, 'time' => '09:00', 'duration_minutes' => '60', 'max' => '1' ] ] ] );
 ok( is_array( slots( 800 ) ) && count( slots( 800 ) ) === 1, 'allowed user saves slots' );
 $GLOBALS['_can'] = false;
-save_event( 800, [ 'dcs_meeting_mode' => 'booking', 'slots' => [] ] );
+save_event( 800, $NONCE + [ 'dcs_meeting_mode' => 'booking', 'dcs_slots_present' => '1', 'slots' => [] ] );
 ok( count( slots( 800 ) ) === 1, 'user without edit permission on the event changes nothing' );
 $GLOBALS['_can'] = true;
 

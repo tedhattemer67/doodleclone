@@ -34,6 +34,7 @@ class DCS_Admin {
         add_action( 'add_meta_boxes',  [ __CLASS__, 'register_meta_boxes' ] );
         add_action( 'admin_footer',    [ __CLASS__, 'admin_footer_scripts' ] );
         add_action( 'admin_notices',   [ __CLASS__, 'render_flash_notices' ] );
+        add_action( 'edit_form_top',   [ __CLASS__, 'render_edit_nonce' ] );
 
         // Single chained save hook — explicit priorities, no anonymous closures
         add_action( 'save_post_meeting_event', [ __CLASS__, 'dcs_snapshot_pre_save' ],        5,    3 );
@@ -77,6 +78,16 @@ class DCS_Admin {
     // =========================================================================
     // Meta Boxes
     // =========================================================================
+
+    /**
+     * The edit-screen nonce every meta-box save handler checks. Printed once
+     * at the top of the form (not inside one meta box) so it is posted even
+     * if a box is removed, and covers slots, parts, details, type and status.
+     */
+    public static function render_edit_nonce( $post ): void {
+        if ( ! $post instanceof WP_Post || $post->post_type !== 'meeting_event' ) return;
+        wp_nonce_field( 'dcs_save_details_action', 'dcs_save_details_nonce' );
+    }
 
     public static function register_meta_boxes(): void {
         $post_type = 'meeting_event';
@@ -283,7 +294,6 @@ class DCS_Admin {
 
     public static function render_details_box( WP_Post $post ): void {
         $default = dcs_sanitize_meeting_details( dcs_get_meeting_details( $post->ID )['default'] );
-        wp_nonce_field( 'dcs_save_details_action', 'dcs_save_details_nonce' );
         echo '<p class="description">'
             . esc_html__( 'Applies to every slot unless a slot overrides it. These details are never shown on the public page — they are only emailed to attendees when you close the event and send final details.', 'doodle-clone-scheduler' )
             . '</p>';
@@ -864,21 +874,17 @@ class DCS_Admin {
     /** Priority 10: Write slots submitted via the admin form. */
     public static function save_slots( int $post_id ): void {
         if ( ! self::should_save( $post_id ) ) return;
+        // Only a submit of this event's edit screen may change its slots
+        // (stops a forged cross-site POST, and Quick Edit / programmatic saves).
+        if ( ! self::edit_form_nonce_ok() ) return;
 
         // WordPress adds slashes to every superglobal; strip them before
         // sanitizing so values like "O'Brien" are not stored as "O\'Brien".
         $posted_slots = ( ! empty( $_POST['slots'] ) && is_array( $_POST['slots'] ) ) ? wp_unslash( $_POST['slots'] ) : [];
 
-        if ( ! $posted_slots ) {
-            // No slot rows posted. Only treat that as "delete every slot"
-            // when the Meeting Slots box itself was submitted (its marker is
-            // there) with a valid nonce from this edit screen. Any other save
-            // (Quick Edit, a programmatic update, …) leaves slots alone.
-            $from_box = ! empty( $_POST['dcs_slots_present'] )
-                && isset( $_POST['dcs_save_details_nonce'] )
-                && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dcs_save_details_nonce'] ) ), 'dcs_save_details_action' );
-            if ( ! $from_box ) return;
-        }
+        // No slot rows posted: only "delete every slot" when the Meeting
+        // Slots box itself was submitted (its marker is there).
+        if ( ! $posted_slots && empty( $_POST['dcs_slots_present'] ) ) return;
 
         // Parts were saved at priority 8, so this is the current list.
         $parts = dcs_get_parts( $post_id );
@@ -1092,7 +1098,7 @@ class DCS_Admin {
      */
     public static function save_meeting_details( int $post_id ): void {
         if ( ! self::should_save( $post_id ) ) return;
-        if ( ! isset( $_POST['dcs_save_details_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dcs_save_details_nonce'] ) ), 'dcs_save_details_action' ) ) {
+        if ( ! self::edit_form_nonce_ok() ) {
             self::$pending_overrides = null;
             return;
         }
@@ -1137,7 +1143,7 @@ class DCS_Admin {
     public static function save_parts( int $post_id ): void {
         if ( ! self::should_save( $post_id ) ) return;
         if ( empty( $_POST['dcs_parts_present'] ) ) return;
-        if ( ! isset( $_POST['dcs_save_details_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dcs_save_details_nonce'] ) ), 'dcs_save_details_action' ) ) return;
+        if ( ! self::edit_form_nonce_ok() ) return;
 
         $posted = isset( $_POST['parts'] ) && is_array( $_POST['parts'] ) ? wp_unslash( $_POST['parts'] ) : [];
 
@@ -1170,6 +1176,7 @@ class DCS_Admin {
     /** Priority 20: Save meeting mode and default duration. */
     public static function save_mode( int $post_id ): void {
         if ( ! self::should_save( $post_id ) ) return;
+        if ( ! self::edit_form_nonce_ok() ) return;
         if ( isset( $_POST['dcs_meeting_mode'] ) ) {
             $mode = in_array( $_POST['dcs_meeting_mode'], [ 'poll', 'sessions' ], true ) ? $_POST['dcs_meeting_mode'] : 'booking';
             update_post_meta( $post_id, '_meeting_mode', $mode );
@@ -1188,7 +1195,7 @@ class DCS_Admin {
     public static function save_poll_status( int $post_id, WP_Post $post ): void {
         if ( ! self::should_save( $post_id ) ) return;
 
-        if ( isset( $_POST['dcs_poll_status'] ) ) {
+        if ( isset( $_POST['dcs_poll_status'] ) && self::edit_form_nonce_ok() ) {
             $val = $_POST['dcs_poll_status'] === 'closed' ? 'closed' : 'open';
             update_post_meta( $post_id, '_poll_status', $val );
         } elseif ( ! get_post_meta( $post_id, '_poll_status', true ) ) {
@@ -1621,5 +1628,11 @@ class DCS_Admin {
         if ( ! current_user_can( 'edit_post', $post_id ) ) return false;
         if ( get_post_type( $post_id ) !== 'meeting_event' ) return false;
         return true;
+    }
+
+    /** True when the request carries a valid nonce from this event's edit screen (render_edit_nonce). */
+    private static function edit_form_nonce_ok(): bool {
+        return isset( $_POST['dcs_save_details_nonce'] )
+            && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dcs_save_details_nonce'] ) ), 'dcs_save_details_action' );
     }
 }

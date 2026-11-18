@@ -26,11 +26,12 @@ class WP_Error {
 function is_wp_error( $x ) { return $x instanceof WP_Error; }
 
 class JsonResponse extends Exception {
-    public $ok; public $data;
-    function __construct( $ok, $data ) { $this->ok = $ok; $this->data = $data; parent::__construct( 'json' ); }
+    public $ok; public $data; public $status;
+    function __construct( $ok, $data, $status = null ) { $this->ok = $ok; $this->data = $data; $this->status = $status ?? 200; parent::__construct( 'json' ); }
 }
-function wp_send_json_error( $d = null, $code = null ) { throw new JsonResponse( false, $d ); }
-function wp_send_json_success( $d = null ) { throw new JsonResponse( true, $d ); }
+function wp_send_json_error( $d = null, $code = null ) { throw new JsonResponse( false, $d, $code ); }
+function wp_send_json_success( $d = null, $code = null ) { throw new JsonResponse( true, $d, $code ); }
+function nocache_headers() { $GLOBALS['_nocache'] = true; }
 
 // Meta / options / transients
 function get_post_meta( $id, $k, $single = true ) { return $GLOBALS['_meta'][ $id ][ $k ] ?? ''; }

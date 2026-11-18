@@ -311,7 +311,8 @@ ok( str_contains( $slots_box, 'name="slots[1][details][url]"' ), 'slot override 
 ok( substr_count( $slots_box, '<details class="dcs-slot-override" open' ) === 1, 'only the slot with an override starts expanded' );
 ok( str_contains( $slots_box, 'id="dcs-slot-override-tpl"' ) && str_contains( $slots_box, 'slots[__i__][details][passcode]' ), 'JS template for new slots present' );
 $det = render( fn() => DCS_Admin::render_details_box( get_post( 100 ) ) );
-ok( str_contains( $det, 'dcs_save_details_nonce' ) && str_contains( $det, 'value="https://zoom.us/j/999"' ), 'details box renders nonce + saved values' );
+ok( str_contains( $det, 'value="https://zoom.us/j/999"' ), 'details box renders saved values' );
+ok( str_contains( render( fn() => DCS_Admin::render_edit_nonce( get_post( 100 ) ) ), 'name="dcs_save_details_nonce"' ), 'edit screen renders the save nonce once, at the top of the form' );
 $foot = render( fn() => DCS_Admin::admin_footer_scripts() );
 ok( str_contains( $foot, 'dcs-slot-override-tpl' ) && str_contains( $foot, "'input, select, textarea'" ), 'footer JS uses template and re-indexes textareas' );
 $res = render( fn() => DCS_Admin::render_results_box( get_post( 200 ) ) );
